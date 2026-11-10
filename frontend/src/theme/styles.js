@@ -16,7 +16,7 @@ const styles = StyleSheet.create({
     justifyContent: "center",
     paddingTop: 36,
   },
-  prototypeWelcomeLogo: { width: 226, height: 226 },
+  prototypeWelcomeLogo: { width: 226, height: 226, borderRadius: 113 },
   prototypeWelcomeName: {
     color: "#faf9fd",
     fontSize: 24,
@@ -51,7 +51,7 @@ const styles = StyleSheet.create({
   prototypeAuthPage: { width: "100%", maxWidth: 430, alignSelf: "center" },
   prototypeBack: { width: 44, minHeight: 44, justifyContent: "center", alignItems: "flex-start" },
   prototypeAuthBrand: { alignItems: "center", marginTop: 14, marginBottom: 32 },
-  prototypeAuthBrandImage: { width: 92, height: 92 },
+  prototypeAuthBrandImage: { width: 92, height: 92, borderRadius: 46 },
   prototypeAuthBrandName: {
     marginTop: 7,
     fontSize: 15,
