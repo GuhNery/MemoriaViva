@@ -1,42 +1,47 @@
 import React, { useState } from "react";
-import { SafeAreaView, Text, View, Pressable } from "react-native";
+import { ActivityIndicator, Image, Pressable, SafeAreaView, ScrollView, Text, TextInput, View } from "react-native";
 import AsyncStorage from "@react-native-async-storage/async-storage";
-import { api, COLORS } from "../services/api";
+import { api } from "../services/api";
 import styles from "../theme/styles";
 import { Screen, Logo, Button, Field, Icon } from "../components/ui";
 
-// Primeira etapa de alinhamento ao protótipo do Figma.
-// As telas autenticadas continuam usando os componentes existentes até a próxima etapa.
+// Logo recortada do protótipo original fornecido pelo grupo.
+// Arquivo necessário: frontend/assets/logo-memoria-viva.png
+const brandLogo = require("../../assets/logo-memoria-viva.png");
+
 export function Welcome({ onLogin, onRegister }) {
   return (
     <SafeAreaView style={styles.prototypeWelcome}>
-      <View style={styles.prototypeWelcomeInner}>
-        <View style={styles.prototypeWelcomeEmblem}>
-          <Icon name="film" size={58} color="#c9b5f2" />
-          <View style={styles.prototypeWelcomeSpark}>
-            <Icon name="star" size={22} color="#f3c86f" />
-          </View>
-        </View>
+      <View style={styles.prototypeWelcomeCenter}>
+        <Image
+          source={brandLogo}
+          style={styles.prototypeWelcomeLogo}
+          resizeMode="contain"
+          accessibilityLabel="Logotipo Memória Viva: película lilás e azul com detalhes dourados"
+        />
         <Text style={styles.prototypeWelcomeName}>MEMÓRIA VIVA</Text>
-        <Text style={styles.prototypeWelcomeTagline}>
-          Suas histórias merecem ser lembradas.
-        </Text>
       </View>
-      <View style={styles.prototypeWelcomeActions}>
+      <View style={styles.prototypeWelcomeFooter}>
         <Pressable
           onPress={onRegister}
           accessibilityRole="button"
-          accessibilityLabel="Criar conta no Memória Viva"
-          style={styles.prototypeWelcomePrimary}
+          accessibilityLabel="Começar, criar uma conta"
+          style={({ pressed }) => [
+            styles.prototypeWelcomePrimary,
+            pressed && styles.prototypeButtonPressed,
+          ]}
         >
           <Text style={styles.prototypeWelcomePrimaryText}>Começar</Text>
-          <Icon name="arrow-right" color="#15171c" size={18} />
+          <Icon name="arrow-right" color="#171820" size={19} />
         </Pressable>
         <Pressable
           onPress={onLogin}
           accessibilityRole="button"
-          accessibilityLabel="Já tenho uma conta"
-          style={styles.prototypeWelcomeSecondary}
+          accessibilityLabel="Já tenho uma conta, entrar"
+          style={({ pressed }) => [
+            styles.prototypeWelcomeSecondary,
+            pressed && styles.prototypeButtonPressed,
+          ]}
         >
           <Text style={styles.prototypeWelcomeSecondaryText}>Já tenho uma conta</Text>
         </Pressable>
@@ -51,6 +56,7 @@ export function Auth({ mode, onBack, onSuccess }) {
   const [form, setForm] = useState({ name: "", email: "", password: "" });
   const [error, setError] = useState("");
   const [loading, setLoading] = useState(false);
+  const [showPassword, setShowPassword] = useState(false);
 
   const changeMode = (nextMode) => {
     setError("");
@@ -58,31 +64,31 @@ export function Auth({ mode, onBack, onSuccess }) {
   };
 
   const submit = async () => {
+    if (loading) return;
     setError("");
     if (!form.email.trim()) {
       setError("Informe seu e-mail para continuar.");
       return;
     }
     if (isForgot) {
-      setError("A recuperação por e-mail ainda não está disponível nesta versão.");
+      setError("A recuperação por e-mail ainda não está disponível.");
       return;
     }
     if (isRegister && !form.name.trim()) {
-      setError("Informe seu nome para criar a conta.");
+      setError("Informe seu nome.");
       return;
     }
     if (!form.password) {
-      setError("Informe sua senha para continuar.");
+      setError("Informe sua senha.");
       return;
     }
     if (isRegister && form.password.length < 6) {
-      setError("A senha deve ter pelo menos 6 caracteres.");
+      setError("A senha precisa ter pelo menos 6 caracteres.");
       return;
     }
     try {
       setLoading(true);
-      const endpoint = isRegister ? "/api/auth/register" : "/api/auth/login";
-      const result = await api(endpoint, null, {
+      const result = await api(isRegister ? "/api/auth/register" : "/api/auth/login", null, {
         method: "POST",
         body: JSON.stringify({
           name: form.name.trim(),
@@ -100,104 +106,170 @@ export function Auth({ mode, onBack, onSuccess }) {
   };
 
   return (
-    <Screen>
-      <View style={styles.prototypeAuthPage}>
-        <Pressable
-          accessibilityRole="button"
-          accessibilityLabel="Voltar"
-          onPress={() => onBack()}
-          style={styles.prototypeBack}
-        >
-          <Icon name="arrow-left" size={20} color={COLORS.ink} />
-        </Pressable>
+    <SafeAreaView style={styles.prototypeAuthSafe}>
+      <ScrollView
+        keyboardShouldPersistTaps="handled"
+        contentContainerStyle={styles.prototypeAuthScroll}
+        showsVerticalScrollIndicator={false}
+      >
+        <View style={styles.prototypeAuthPage}>
+          <Pressable
+            accessibilityRole="button"
+            accessibilityLabel="Voltar"
+            onPress={() => onBack()}
+            style={styles.prototypeBack}
+          >
+            <Icon name="arrow-left" size={21} color="#22232b" />
+          </Pressable>
 
-        {!isForgot && (
-          <View style={styles.prototypeAuthTabs}>
-            <Pressable
-              onPress={() => changeMode("login")}
-              accessibilityRole="tab"
-              accessibilityState={{ selected: !isRegister }}
-              style={[styles.prototypeAuthTab, !isRegister && styles.prototypeAuthTabActive]}
-            >
-              <Text style={[styles.prototypeAuthTabText, !isRegister && styles.prototypeAuthTabTextActive]}>
-                Login
-              </Text>
-            </Pressable>
-            <Pressable
-              onPress={() => changeMode("register")}
-              accessibilityRole="tab"
-              accessibilityState={{ selected: isRegister }}
-              style={[styles.prototypeAuthTab, isRegister && styles.prototypeAuthTabActive]}
-            >
-              <Text style={[styles.prototypeAuthTabText, isRegister && styles.prototypeAuthTabTextActive]}>
-                Cadastrar-se
-              </Text>
-            </Pressable>
+          <View style={styles.prototypeAuthBrand}>
+            <Image source={brandLogo} style={styles.prototypeAuthBrandImage} resizeMode="contain" />
+            <Text style={styles.prototypeAuthBrandName}>MEMÓRIA VIVA</Text>
           </View>
-        )}
 
-        <Text style={styles.prototypeAuthTitle}>
-          {isForgot ? "Recuperar acesso" : isRegister ? "É novo por aqui?" : "Bem-vindo"}
-        </Text>
-        <Text style={styles.prototypeAuthSubtitle}>
-          {isForgot
-            ? "Informe o e-mail da sua conta."
-            : isRegister
-              ? "Cadastre-se para guardar suas memórias."
-              : "Preencha seus dados para continuar."}
-        </Text>
-
-        <View style={styles.prototypeAuthForm}>
-          {isRegister && (
-            <Field
-              label="Nome"
-              value={form.name}
-              onChangeText={(name) => setForm({ ...form, name })}
-              placeholder="Seu nome completo"
-            />
-          )}
-          <Field
-            label="E-mail"
-            value={form.email}
-            onChangeText={(email) => setForm({ ...form, email })}
-            placeholder="voce@exemplo.com"
-            keyboardType="email-address"
-          />
           {!isForgot && (
-            <Field
-              label="Senha"
-              value={form.password}
-              onChangeText={(password) => setForm({ ...form, password })}
-              placeholder="Mínimo de 6 caracteres"
-              secureTextEntry
-            />
-          )}
-          {!isForgot && (
-            <Pressable
-              onPress={() => changeMode("forgot")}
-              accessibilityRole="button"
-              style={styles.prototypeForgotLink}
-            >
-              <Text style={styles.prototypeForgotLinkText}>Esqueceu sua senha?</Text>
-            </Pressable>
-          )}
-          {!!error && (
-            <View style={styles.errorBox} accessibilityRole="alert">
-              <Text style={styles.errorText}>{error}</Text>
+            <View style={styles.prototypeAuthTabs}>
+              <Pressable
+                onPress={() => changeMode("login")}
+                accessibilityRole="tab"
+                accessibilityState={{ selected: !isRegister }}
+                style={[styles.prototypeAuthTab, !isRegister && styles.prototypeAuthTabActive]}
+              >
+                <Text style={[styles.prototypeAuthTabText, !isRegister && styles.prototypeAuthTabTextActive]}>
+                  Entrar
+                </Text>
+              </Pressable>
+              <Pressable
+                onPress={() => changeMode("register")}
+                accessibilityRole="tab"
+                accessibilityState={{ selected: isRegister }}
+                style={[styles.prototypeAuthTab, isRegister && styles.prototypeAuthTabActive]}
+              >
+                <Text style={[styles.prototypeAuthTabText, isRegister && styles.prototypeAuthTabTextActive]}>
+                  Criar conta
+                </Text>
+              </Pressable>
             </View>
           )}
-          {isForgot ? (
-            <Button variant="outline" onPress={() => changeMode("login")}>
-              Voltar ao login
-            </Button>
-          ) : (
-            <Button onPress={submit} loading={loading} icon="arrow-right">
-              {isRegister ? "Criar conta" : "Começar"}
-            </Button>
-          )}
+
+          <Text style={styles.prototypeAuthTitle}>
+            {isForgot ? "Recuperar acesso" : isRegister ? "Crie sua conta" : "Bem-vindo de volta"}
+          </Text>
+          <Text style={styles.prototypeAuthSubtitle}>
+            {isForgot
+              ? "Essa funcionalidade está em desenvolvimento."
+              : isRegister
+                ? "Um espaço para preservar suas histórias."
+                : "Entre para continuar suas memórias."}
+          </Text>
+
+          <View style={styles.prototypeAuthForm}>
+            {isRegister && (
+              <View style={styles.prototypeAuthField}>
+                <Text style={styles.prototypeAuthFieldLabel}>Nome completo</Text>
+                <TextInput
+                  value={form.name}
+                  onChangeText={(name) => setForm({ ...form, name })}
+                  placeholder="Como podemos chamar você?"
+                  placeholderTextColor="#90919b"
+                  autoComplete="name"
+                  style={styles.prototypeAuthInput}
+                  accessibilityLabel="Nome completo"
+                />
+              </View>
+            )}
+            <View style={styles.prototypeAuthField}>
+              <Text style={styles.prototypeAuthFieldLabel}>E-mail</Text>
+              <TextInput
+                value={form.email}
+                onChangeText={(email) => setForm({ ...form, email })}
+                placeholder="seuemail@exemplo.com"
+                placeholderTextColor="#90919b"
+                autoCapitalize="none"
+                keyboardType="email-address"
+                autoComplete="email"
+                style={styles.prototypeAuthInput}
+                accessibilityLabel="E-mail"
+              />
+            </View>
+            {!isForgot && (
+              <View style={styles.prototypeAuthField}>
+                <Text style={styles.prototypeAuthFieldLabel}>Senha</Text>
+                <View style={styles.prototypePasswordRow}>
+                  <TextInput
+                    value={form.password}
+                    onChangeText={(password) => setForm({ ...form, password })}
+                    placeholder="Mínimo de 6 caracteres"
+                    placeholderTextColor="#90919b"
+                    secureTextEntry={!showPassword}
+                    autoCapitalize="none"
+                    autoComplete={isRegister ? "new-password" : "current-password"}
+                    style={styles.prototypePasswordInput}
+                    accessibilityLabel="Senha"
+                  />
+                  <Pressable
+                    onPress={() => setShowPassword((current) => !current)}
+                    accessibilityRole="button"
+                    accessibilityLabel={showPassword ? "Ocultar senha" : "Mostrar senha"}
+                    style={styles.prototypePasswordToggle}
+                  >
+                    <Icon name={showPassword ? "eye-off" : "eye"} size={19} color="#777886" />
+                  </Pressable>
+                </View>
+              </View>
+            )}
+
+            {!isForgot && (
+              <Pressable
+                onPress={() => changeMode("forgot")}
+                accessibilityRole="button"
+                style={styles.prototypeForgotLink}
+              >
+                <Text style={styles.prototypeForgotLinkText}>Esqueceu sua senha?</Text>
+              </Pressable>
+            )}
+
+            {!!error && (
+              <View style={styles.prototypeAuthError} accessibilityRole="alert">
+                <Text style={styles.prototypeAuthErrorText}>{error}</Text>
+              </View>
+            )}
+
+            {isForgot ? (
+              <Pressable
+                onPress={() => changeMode("login")}
+                accessibilityRole="button"
+                style={styles.prototypeAuthSubmit}
+              >
+                <Text style={styles.prototypeAuthSubmitText}>Voltar ao login</Text>
+              </Pressable>
+            ) : (
+              <Pressable
+                onPress={submit}
+                disabled={loading}
+                accessibilityRole="button"
+                accessibilityState={{ disabled: loading }}
+                style={({ pressed }) => [
+                  styles.prototypeAuthSubmit,
+                  (pressed || loading) && styles.prototypeButtonPressed,
+                ]}
+              >
+                {loading ? (
+                  <ActivityIndicator color="#fff" />
+                ) : (
+                  <>
+                    <Text style={styles.prototypeAuthSubmitText}>
+                      {isRegister ? "Criar conta" : "Entrar"}
+                    </Text>
+                    <Icon name="arrow-right" color="#fff" size={18} />
+                  </>
+                )}
+              </Pressable>
+            )}
+          </View>
         </View>
-      </View>
-    </Screen>
+      </ScrollView>
+    </SafeAreaView>
   );
 }
 
