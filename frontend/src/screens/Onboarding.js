@@ -6,8 +6,8 @@ import styles from "../theme/styles";
 import { Screen, Logo, Button, Field, Icon } from "../components/ui";
 
 // Logo recortada do protótipo original fornecido pelo grupo.
-// Arquivo necessário: frontend/assets/logo-memoria-viva.png
-const brandLogo = require("../../assets/logo-memoria-viva.png");
+// Arquivo necessário: frontend/assets/logo-memoria-viva.jpg
+const brandLogo = require("../../assets/logo-memoria-viva.jpg");
 
 export function Welcome({ onLogin, onRegister }) {
   return (
