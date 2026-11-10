@@ -4,10 +4,10 @@ Esta pasta armazena imagens do aplicativo, incluindo a logo do protótipo do gru
 
 ## Arquivo necessário para compilar a etapa 1
 
-- `logo-memoria-viva.png` — logotipo circular com película lilás/azul e detalhes dourados.
+- `logo-memoria-viva.jpg` — logotipo circular com película lilás/azul e detalhes dourados.
 
 O arquivo é uma imagem recortada da tela de abertura enviada pelo grupo. Por ser uma arte gráfica fornecida como imagem, não deve ser substituída por um ícone genérico.
 
-Ao testar localmente, salve o PNG nessa pasta com esse nome **antes de iniciar o Expo**. Ele é carregado por `src/screens/Onboarding.js`.
+Ao testar localmente, utilize o JPG versionado nesta pasta; ele será baixado automaticamente ao atualizar a branch. Ele é carregado por `src/screens/Onboarding.js`.
 
 > Não inclua nesta pasta senhas, chaves de API, strings de conexão ou dados privados.
