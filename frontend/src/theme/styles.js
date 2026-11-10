@@ -2,6 +2,67 @@ import { Platform, StyleSheet } from "react-native";
 import { COLORS } from "../services/api";
 
 const styles = StyleSheet.create({
+  // Identidade visual da etapa 1: telas de abertura, login e cadastro.
+  prototypeWelcome: {
+    flex: 1, backgroundColor: "#14151a", justifyContent: "space-between",
+    paddingHorizontal: 32, paddingTop: 48, paddingBottom: 34,
+  },
+  prototypeWelcomeInner: { flex: 1, alignItems: "center", justifyContent: "center" },
+  prototypeWelcomeEmblem: {
+    width: 150, height: 150, borderRadius: 38,
+    backgroundColor: "#292731", alignItems: "center",
+    justifyContent: "center", marginBottom: 34,
+  },
+  prototypeWelcomeSpark: {
+    position: "absolute", right: 17, top: 17,
+    width: 33, height: 33, borderRadius: 17,
+    backgroundColor: "#3b3541", alignItems: "center", justifyContent: "center",
+  },
+  prototypeWelcomeName: {
+    color: "#fff", fontSize: 27, fontWeight: "800",
+    letterSpacing: 3, textAlign: "center",
+  },
+  prototypeWelcomeTagline: {
+    marginTop: 14, color: "#d3ced9", fontSize: 15,
+    textAlign: "center", lineHeight: 22,
+  },
+  prototypeWelcomeActions: { gap: 14, width: "100%" },
+  prototypeWelcomePrimary: {
+    minHeight: 54, backgroundColor: "#f5f3f9", borderRadius: 12,
+    flexDirection: "row", alignItems: "center",
+    justifyContent: "center", gap: 12,
+  },
+  prototypeWelcomePrimaryText: { color: "#16171b", fontSize: 16, fontWeight: "800" },
+  prototypeWelcomeSecondary: {
+    minHeight: 52, borderWidth: 1, borderColor: "#88838f", borderRadius: 12,
+    alignItems: "center", justifyContent: "center",
+  },
+  prototypeWelcomeSecondaryText: { color: "#fff", fontSize: 15, fontWeight: "600" },
+  prototypeAuthPage: { width: "100%", maxWidth: 460, alignSelf: "center", paddingTop: 8 },
+  prototypeBack: {
+    height: 44, width: 44, alignItems: "flex-start", justifyContent: "center",
+    marginBottom: 28,
+  },
+  prototypeAuthTabs: {
+    flexDirection: "row", gap: 6,
+    backgroundColor: "#f1f1f2", borderRadius: 12, padding: 5,
+    marginBottom: 34,
+  },
+  prototypeAuthTab: { flex: 1, minHeight: 44, justifyContent: "center", alignItems: "center", borderRadius: 9 },
+  prototypeAuthTabActive: {
+    backgroundColor: "#fff", ...Platform.select({ web: { boxShadow: "0px 2px 7px rgba(0,0,0,0.07)" }, default: { elevation: 1 } }),
+  },
+  prototypeAuthTabText: { color: "#73737b", fontSize: 15, fontWeight: "600" },
+  prototypeAuthTabTextActive: { color: "#17181c", fontWeight: "800" },
+  prototypeAuthTitle: {
+    color: "#111217", fontSize: 31, fontWeight: "800",
+    lineHeight: 39, letterSpacing: -0.8,
+  },
+  prototypeAuthSubtitle: { color: "#7b7d83", fontSize: 14, lineHeight: 21, marginTop: 8 },
+  prototypeAuthForm: { marginTop: 37 },
+  prototypeForgotLink: { alignSelf: "flex-end", paddingVertical: 12, marginBottom: 18 },
+  prototypeForgotLinkText: { color: "#4e5061", fontWeight: "600", fontSize: 13 },
+
   safe: { flex: 1, backgroundColor: COLORS.paper },
   appSafe: { flex: 1, backgroundColor: COLORS.paper },
   screenContent: { padding: 22, paddingBottom: 40 },
