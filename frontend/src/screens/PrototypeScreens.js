@@ -1,5 +1,5 @@
 import React, { useMemo, useState } from "react";
-import { ActivityIndicator, Image, Pressable, ScrollView, Text, TextInput, View } from "react-native";
+import { ActivityIndicator, Image, Pressable, SafeAreaView, ScrollView, Text, TextInput, View } from "react-native";
 import { Icon } from "../components/ui";
 import { api } from "../services/api";
 import S from "../theme/prototypeInternalStyles";
@@ -255,7 +255,9 @@ export function PrototypeCreateFamily({ token, onCreated, onCancel }) {
   };
 
   return (
-    <ScrollView showsVerticalScrollIndicator={false} contentContainerStyle={S.scroll}>
+    <SafeAreaView style={S.shell}>
+      <View style={S.shellInner}>
+        <ScrollView showsVerticalScrollIndicator={false} contentContainerStyle={S.scroll}>
       {!!onCancel && (
         <Pressable
           onPress={onCancel}
@@ -312,6 +314,8 @@ export function PrototypeCreateFamily({ token, onCreated, onCancel }) {
       >
         {loading ? <ActivityIndicator color="#fff" /> : <Text style={S.actionLabel}>Criar grupo</Text>}
       </Pressable>
-    </ScrollView>
+        </ScrollView>
+      </View>
+    </SafeAreaView>
   );
 }
