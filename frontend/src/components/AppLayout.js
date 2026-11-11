@@ -1,107 +1,72 @@
-
 import React from "react";
-import {
-  Pressable,
-  SafeAreaView,
-  StatusBar,
-  Text,
-  View,
-} from "react-native";
+import { Pressable, SafeAreaView, StatusBar, Text, View } from "react-native";
+import { Icon } from "./ui";
+import S from "../theme/prototypeInternalStyles";
 
-import { COLORS, initials } from "../services/api";
-import styles from "../theme/styles";
-import { Icon, Avatar } from "./ui";
-
-export function Header({ user, family, setScreen }) {
-  const userName = user?.name || user?.nome || "Usuário";
-  const familyName = family?.name || "Memória Viva";
-  const photoUrl = user?.photoUrl || user?.foto_perfil || null;
-
-  const openProfile = () => {
-    if (typeof setScreen === "function") {
-      setScreen("profile");
-    }
-  };
-
+export function Header({ family, screen, setScreen }) {
+  const searchActive = screen === "search";
   return (
-    <View style={styles.appHeader}>
-      <View style={{ flex: 1 }}>
-        <Text style={styles.eyebrow}>FAMÍLIA ATIVA</Text>
-
-        <Text
-          style={styles.headerTitle}
-          numberOfLines={1}
-          ellipsizeMode="tail"
+    <View style={S.header}>
+      <View style={S.headerLeft}>
+        <Pressable
+          onPress={() => setScreen("profile")}
+          accessibilityRole="button"
+          accessibilityLabel="Abrir meu perfil"
+          style={S.avatar}
         >
-          {familyName}
-        </Text>
+          <Icon name="user" size={19} color="#fff" />
+        </Pressable>
+        <Text style={S.headerGroup} numberOfLines={1}>{family?.name || "Memória Viva"}</Text>
       </View>
-
-      <Pressable
-        onPress={openProfile}
-        accessibilityRole="button"
-        accessibilityLabel="Abrir meu perfil"
-        accessibilityHint="Acesse seus dados pessoais e sua foto de perfil"
-        accessibilityState={{ disabled: typeof setScreen !== "function" }}
-        disabled={typeof setScreen !== "function"}
-        hitSlop={10}
-        style={({ pressed }) => ({
-          opacity: pressed ? 0.7 : 1,
-          borderRadius: 50,
-        })}
-      >
-        <Avatar
-          text={initials(userName)}
-          photoUrl={photoUrl}
-          color={COLORS.terracotta}
-        />
-      </Pressable>
+      <View style={S.headerActions}>
+        <Pressable
+          onPress={() => setScreen(searchActive ? "home" : "search")}
+          accessibilityRole="button"
+          accessibilityLabel={searchActive ? "Fechar pesquisa" : "Pesquisar memórias"}
+          style={S.iconAction}
+        >
+          <Icon name={searchActive ? "x" : "search"} size={19} color="#303139" />
+        </Pressable>
+        <Pressable
+          onPress={() => setScreen("settings")}
+          accessibilityRole="button"
+          accessibilityLabel="Abrir configurações do grupo"
+          style={S.iconAction}
+        >
+          <Icon name="settings" size={19} color="#303139" />
+        </Pressable>
+      </View>
     </View>
   );
 }
 
 export function Tabs({ current, setScreen }) {
   const tabs = [
-    { key: "home", label: "Início", icon: "home" },
-    { key: "timeline", label: "Timeline", icon: "clock" },
-    { key: "members", label: "Membros", icon: "users" },
-    { key: "settings", label: "Ajustes", icon: "settings" },
-    { key: "profile", label: "Perfil", icon: "user" },
+    { key: "groups", icon: "users", label: "Meus grupos" },
+    { key: "home", icon: "home", label: "Início" },
+    { key: "profile", icon: "user", label: "Perfil" },
   ];
-
   return (
-    <View style={styles.tabs}>
+    <View style={S.footer}>
       {tabs.map((tab) => {
-        const active = current === tab.key;
-
+        const active = current === tab.key || (tab.key === "home" && current === "search");
         return (
           <Pressable
             key={tab.key}
             onPress={() => setScreen(tab.key)}
-            style={({ pressed }) => [
-              styles.tab,
-              { opacity: pressed ? 0.65 : 1 },
-            ]}
             accessibilityRole="button"
             accessibilityLabel={tab.label}
             accessibilityState={{ selected: active }}
-            hitSlop={5}
+            style={S.footerTab}
           >
-            <Icon
-              name={tab.icon}
-              size={19}
-              color={active ? COLORS.teal : "#9aa8a2"}
-            />
-
-            <Text
-              style={[
-                styles.tabText,
-                active && styles.tabTextActive,
-              ]}
-              numberOfLines={1}
-            >
-              {tab.label}
-            </Text>
+            {tab.key === "home" ? (
+              <View style={S.footerCenter}>
+                <Icon name="home" color="#fff" size={20} />
+              </View>
+            ) : (
+              <Icon name={tab.icon} color={active ? "#17181e" : "#777880"} size={20} />
+            )}
+            <Text style={[S.footerLabel, active && S.footerLabelSelected]}>{tab.label}</Text>
           </Pressable>
         );
       })}
@@ -109,56 +74,14 @@ export function Tabs({ current, setScreen }) {
   );
 }
 
-export function AppLayout({
-  children,
-  user,
-  family,
-  screen,
-  setScreen,
-  onLogout,
-  onAdd,
-}) {
+export function AppLayout({ children, family, screen, setScreen }) {
   return (
-    <SafeAreaView style={styles.appSafe}>
-      <StatusBar
-        barStyle="dark-content"
-        backgroundColor={COLORS.paper}
-      />
-
-      <View style={styles.appBody}>
-        <Header
-          user={user}
-          family={family}
-          setScreen={setScreen}
-        />
-
-        <View style={styles.appContent}>
-          {children}
-        </View>
-
-        <Tabs
-          current={screen}
-          setScreen={setScreen}
-        />
-
-        <Pressable
-          style={({ pressed }) => [
-            styles.fab,
-            { opacity: pressed ? 0.75 : 1 },
-          ]}
-          onPress={onAdd}
-          accessibilityRole="button"
-          accessibilityLabel="Adicionar memória"
-          accessibilityHint="Criar um novo capítulo de memória"
-          disabled={typeof onAdd !== "function"}
-          hitSlop={8}
-        >
-          <Icon
-            name="plus"
-            color={COLORS.white}
-            size={22}
-          />
-        </Pressable>
+    <SafeAreaView style={S.shell}>
+      <StatusBar barStyle="dark-content" backgroundColor="#ffffff" />
+      <View style={S.shellInner}>
+        <Header family={family} screen={screen} setScreen={setScreen} />
+        <View style={S.main}>{children}</View>
+        <Tabs current={screen} setScreen={setScreen} />
       </View>
     </SafeAreaView>
   );
