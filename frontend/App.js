@@ -3,20 +3,14 @@ import React, { useEffect, useState } from "react";
 import AsyncStorage from "@react-native-async-storage/async-storage";
 
 import { api } from "./src/services/api";
-import styles from "./src/theme/styles";
 import { LoadingScreen } from "./src/components/ui";
 import { AppLayout } from "./src/components/AppLayout";
 import { PrototypeHome, PrototypeGroups, PrototypeCreateFamily } from "./src/screens/PrototypeScreens";
 import { Alert, Platform } from "react-native";
 
-import {
-  Welcome,
-  Auth,
-  FamilySetup,
-} from "./src/screens/Onboarding";
+import { Welcome, Auth } from "./src/screens/Onboarding";
 
 import {
-  Dashboard,
   Timeline,
   ChapterForm,
   ChapterDetail,
