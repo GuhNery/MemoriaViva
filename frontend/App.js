@@ -3,19 +3,14 @@ import React, { useEffect, useState } from "react";
 import AsyncStorage from "@react-native-async-storage/async-storage";
 
 import { api } from "./src/services/api";
-import styles from "./src/theme/styles";
 import { LoadingScreen } from "./src/components/ui";
 import { AppLayout } from "./src/components/AppLayout";
+import { PrototypeHome, PrototypeGroups, PrototypeCreateFamily } from "./src/screens/PrototypeScreens";
 import { Alert, Platform } from "react-native";
 
-import {
-  Welcome,
-  Auth,
-  FamilySetup,
-} from "./src/screens/Onboarding";
+import { Welcome, Auth } from "./src/screens/Onboarding";
 
 import {
-  Dashboard,
   Timeline,
   ChapterForm,
   ChapterDetail,
@@ -33,6 +28,7 @@ export default function App() {
   const [token, setToken] = useState(null);
   const [user, setUser] = useState(null);
   const [family, setFamily] = useState(null);
+  const [families, setFamilies] = useState([]);
   const [members, setMembers] = useState([]);
   const [chapters, setChapters] = useState([]);
   const [screen, setScreen] = useState("welcome");
@@ -71,6 +67,7 @@ export default function App() {
 
       setToken(savedToken);
       setUser(me.user);
+      setFamilies(me.families || []);
 
       if (me.families?.[0]) {
         await refreshFamily(
@@ -95,6 +92,7 @@ export default function App() {
       setToken(null);
       setUser(null);
       setFamily(null);
+      setFamilies([]);
       setMembers([]);
       setChapters([]);
       setSelected(null);
@@ -140,12 +138,27 @@ export default function App() {
     };
   }, []);
 
+  // Atualiza a lista de grupos ao abrir a tela correspondente.
+  useEffect(() => {
+    if (screen !== "groups" || !token) return undefined;
+    let active = true;
+    api("/api/auth/me", token)
+      .then((result) => {
+        if (active) setFamilies(result.families || []);
+      })
+      .catch((error) => {
+        console.error("Não foi possível atualizar os grupos:", error.message);
+      });
+    return () => { active = false; };
+  }, [screen, token]);
+
   // Logout local: não depende da resposta do backend.
   const logout = async () => {
     // Limpa a sessão imediatamente na interface
     setToken(null);
     setUser(null);
     setFamily(null);
+    setFamilies([]);
     setMembers([]);
     setChapters([]);
     setSelected(null);
@@ -169,6 +182,7 @@ export default function App() {
 
       setToken(result.token);
       setUser(result.user);
+      setFamilies(result.families || []);
 
       if (result.families?.[0]) {
         await refreshFamily(
@@ -192,8 +206,25 @@ export default function App() {
 
   const familyCreated = async (newFamily) => {
     await refreshFamily(newFamily.id, token);
+    setFamilies((current) => [
+      newFamily,
+      ...current.filter((item) => String(item.id) !== String(newFamily.id)),
+    ]);
     setScreen("home");
   };
+
+  const selectFamily = async (selectedFamily) => {
+    try {
+      await refreshFamily(selectedFamily.id, token);
+      setScreen("home");
+    } catch (error) {
+      Alert.alert("Não foi possível abrir o grupo", error?.message || "Tente novamente.");
+    }
+  };
+
+  const currentUserIsAdmin = members.some(
+    (member) => String(member.userId) === String(user?.id) && member.permission === "admin"
+  );
 
   const openChapter = (chapter) => {
     setSelected(chapter);
@@ -257,10 +288,10 @@ export default function App() {
 
   if (screen === "createFamily" || !family) {
     return (
-      <FamilySetup
+      <PrototypeCreateFamily
         token={token}
-        user={user}
         onCreated={familyCreated}
+        onCancel={family ? () => setScreen("groups") : undefined}
       />
     );
   }
@@ -311,14 +342,30 @@ export default function App() {
 
   switch (screen) {
     case "home":
+    case "search":
       content = (
-        <Dashboard
+        <PrototypeHome
           family={family}
           chapters={chapters}
-          members={members}
-          setScreen={setScreen}
-          openChapter={openChapter}
-          onAdd={() => setScreen("newChapter")}
+          onOpenChapter={openChapter}
+          onShowTimeline={() => setScreen("timeline")}
+          onCreateAlbum={() => setScreen("newChapter")}
+          canManage={currentUserIsAdmin}
+          searchMode={screen === "search"}
+        />
+      );
+      break;
+
+    case "groups":
+      content = (
+        <PrototypeGroups
+          families={families}
+          activeFamilyId={family.id}
+          onSelectFamily={selectFamily}
+          onEditFamily={() => setScreen("settings")}
+          onAddFamily={() => setScreen("createFamily")}
+          onManageMembers={() => setScreen("members")}
+          isCurrentAdmin={currentUserIsAdmin}
         />
       );
       break;
@@ -373,13 +420,13 @@ export default function App() {
 
     default:
       content = (
-        <Dashboard
+        <PrototypeHome
           family={family}
           chapters={chapters}
-          members={members}
-          setScreen={setScreen}
-          openChapter={openChapter}
-          onAdd={() => setScreen("newChapter")}
+          onOpenChapter={openChapter}
+          onShowTimeline={() => setScreen("timeline")}
+          onCreateAlbum={() => setScreen("newChapter")}
+          canManage={currentUserIsAdmin}
         />
       );
   }

@@ -1,6 +1,6 @@
 const API_URL = (
   process.env.EXPO_PUBLIC_API_URL ||
-  "https://memoriaviva-9ft2.onrender.com"
+  "http://localhost:3001"
 ).replace(/\/$/, "");
 export const COLORS = {
   ink: "#18383c",
