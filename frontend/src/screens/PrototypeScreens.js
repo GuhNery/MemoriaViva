@@ -123,6 +123,15 @@ export function PrototypeHome({
 
       <View style={[S.headingRow, { marginTop: 24 }]}>
         <Text style={S.heading}>Álbuns de memórias</Text>
+        {!!chapters.length && (
+          <Pressable
+            onPress={onShowTimeline}
+            accessibilityRole="button"
+            accessibilityLabel="Ver todos os álbuns em ordem cronológica"
+          >
+            <Text style={S.textLink}>Ver todos</Text>
+          </Pressable>
+        )}
       </View>
 
       {albums.length ? albums.slice(0, searchMode ? undefined : 6).map((chapter) => (
@@ -175,6 +184,7 @@ export function PrototypeGroups({
   onSelectFamily,
   onEditFamily,
   onAddFamily,
+  onManageMembers,
   isCurrentAdmin = false,
 }) {
   return (
@@ -221,6 +231,15 @@ export function PrototypeGroups({
       >
         <Icon name="plus" color="#2b2b31" size={24} />
         <Text style={S.addGroupText}>Adicione um grupo</Text>
+      </Pressable>
+      <Pressable
+        onPress={onManageMembers}
+        accessibilityRole="button"
+        accessibilityLabel="Gerenciar membros do grupo ativo"
+        style={({ pressed }) => [S.secondaryButton, { marginTop: 20 }, pressed && { opacity: 0.7 }]}
+      >
+        <Icon name="user-plus" size={18} color="#33343a" />
+        <Text style={S.secondaryLabel}>Integrantes do grupo ativo</Text>
       </Pressable>
     </ScrollView>
   );
