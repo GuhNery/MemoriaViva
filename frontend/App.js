@@ -364,6 +364,7 @@ export default function App() {
           onSelectFamily={selectFamily}
           onEditFamily={() => setScreen("settings")}
           onAddFamily={() => setScreen("createFamily")}
+          onManageMembers={() => setScreen("members")}
           isCurrentAdmin={currentUserIsAdmin}
         />
       );
