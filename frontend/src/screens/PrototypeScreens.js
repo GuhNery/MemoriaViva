@@ -3,6 +3,7 @@ import { ActivityIndicator, Image, Pressable, SafeAreaView, ScrollView, Text, Te
 import { Icon } from "../components/ui";
 import { api, assetUrl } from "../services/api";
 import S from "../theme/prototypeInternalStyles";
+import { CoverField, uploadCover } from "../components/CoverField";
 
 const brandLogo = require("../../assets/logo-memoria-viva.jpg");
 
@@ -372,6 +373,8 @@ export function PrototypeGroups({
 export function PrototypeCreateFamily({ token, onCreated, onCancel }) {
   const [name, setName] = useState("");
   const [description, setDescription] = useState("");
+  const [cover, setCover] = useState(null);
+  const [createdGroup, setCreatedGroup] = useState(null);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState("");
 
@@ -385,11 +388,22 @@ export function PrototypeCreateFamily({ token, onCreated, onCancel }) {
     setLoading(true);
     setError("");
     try {
-      const result = await api("/api/families", token, {
+      const group = createdGroup || (await api("/api/families", token, {
         method: "POST",
         body: JSON.stringify({ name: cleaned, description: description.trim() }),
-      });
-      await onCreated(result.family);
+      })).family;
+      setCreatedGroup(group);
+      let finalGroup = group;
+      if (cover) {
+        try {
+          const upload = await uploadCover({ kind: "group", id: group.id, token, asset: cover });
+          finalGroup = upload.family || group;
+        } catch (uploadError) {
+          setError("O grupo foi criado, mas houve um erro ao salvar a capa: " + (uploadError.message || "tente novamente."));
+          return;
+        }
+      }
+      await onCreated(finalGroup);
     } catch (e) {
       setError(e.message || "Não foi possível criar o grupo.");
     } finally {
@@ -417,12 +431,12 @@ export function PrototypeCreateFamily({ token, onCreated, onCancel }) {
       <Text style={[S.note, { marginTop: 9, marginBottom: 6 }]}>
         Um espaço privado para guardar suas lembranças, sozinho ou com convidados.
       </Text>
-      <View style={S.coverPlaceholder}>
-        <Text style={[S.note, { marginBottom: 9 }]}>Capa do grupo</Text>
-        <View style={S.coverInner}>
-          <Icon name="image" size={36} color="#8a8a95" />
-        </View>
-      </View>
+      <CoverField
+        label="Adicionar capa do grupo"
+        selected={cover}
+        onPick={setCover}
+        busy={loading}
+      />
       <View style={S.field}>
         <Text style={S.label}>Nome do grupo</Text>
         <TextInput
@@ -465,8 +479,20 @@ export function PrototypeCreateFamily({ token, onCreated, onCancel }) {
         accessibilityState={{ disabled: loading }}
         style={({ pressed }) => [S.actionButton, (loading || pressed) && { opacity: 0.7 }]}
       >
-        {loading ? <ActivityIndicator color="#fff" /> : <Text style={S.actionLabel}>Criar grupo</Text>}
+        {loading ? <ActivityIndicator color="#fff" /> : <Text style={S.actionLabel}>
+          {createdGroup ? "Tentar salvar capa" : "Criar grupo"}
+        </Text>}
       </Pressable>
+      {!!createdGroup && (
+        <Pressable
+          onPress={() => onCreated(createdGroup)}
+          disabled={loading}
+          accessibilityRole="button"
+          style={[S.secondaryButton, { marginTop: 10 }]}
+        >
+          <Text style={S.secondaryLabel}>Continuar sem capa</Text>
+        </Pressable>
+      )}
       <Pressable
         onPress={onCancel}
         disabled={loading}
