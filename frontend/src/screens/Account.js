@@ -1,60 +1,82 @@
+import React, { useEffect, useState } from "react";
+import { ActivityIndicator, Pressable, Text, TextInput, View } from "react-native";
+import { api, COLORS, initials } from "../services/api";
+import { Avatar, Icon, Screen } from "../components/ui";
+import S from "../theme/prototypeInternalStyles";
 
-import React, { useState } from "react";
-import { Text, View } from "react-native";
-import { api, COLORS } from "../services/api";
-import styles from "../theme/styles";
-import { Screen, Button, Field, Icon, Avatar } from "../components/ui";
-
-function initials(name) {
-  if (!name || typeof name !== "string") {
-    return "?";
-  }
-
-  const parts = name.trim().split(/\s+/).filter(Boolean);
-
-  if (parts.length === 0) {
-    return "?";
-  }
-
-  if (parts.length === 1) {
-    return parts[0].substring(0, 2).toUpperCase();
-  }
-
-  return `${parts[0][0]}${parts[parts.length - 1][0]}`.toUpperCase();
+function BackHeader({ title, subtitle, onBack }) {
+  return (
+    <View style={{ marginBottom: 22 }}>
+      <Pressable
+        onPress={onBack}
+        accessibilityRole="button"
+        accessibilityLabel="Voltar"
+        style={{ width: 44, height: 44, justifyContent: "center" }}
+      >
+        <Icon name="arrow-left" size={22} color={COLORS.ink} />
+      </Pressable>
+      <Text style={[S.heading, { fontSize: 24, marginTop: 8 }]}>{title}</Text>
+      {!!subtitle && (
+        <Text style={[S.memoryMeta, { fontSize: 13, lineHeight: 19, marginTop: 8 }]}>
+          {subtitle}
+        </Text>
+      )}
+    </View>
+  );
 }
 
-export function Members({ family, token, members = [], onRefresh }) {
+function PrimaryAction({ label, icon, onPress, loading = false, disabled = false }) {
+  return (
+    <Pressable
+      accessibilityRole="button"
+      accessibilityLabel={label}
+      accessibilityState={{ disabled: disabled || loading }}
+      onPress={onPress}
+      disabled={disabled || loading}
+      style={({ pressed }) => [
+        S.actionButton,
+        (pressed || loading || disabled) && { opacity: 0.65 },
+      ]}
+    >
+      {loading ? (
+        <ActivityIndicator color="#fff" />
+      ) : (
+        <>
+          {!!icon && <Icon name={icon} size={18} color="#fff" />}
+          <Text style={S.actionLabel}>{label}</Text>
+        </>
+      )}
+    </Pressable>
+  );
+}
+
+export function Members({ family, token, members = [], onRefresh, onBack, isAdmin = false }) {
+  const [showInvite, setShowInvite] = useState(false);
   const [email, setEmail] = useState("");
   const [message, setMessage] = useState("");
+  const [error, setError] = useState("");
   const [loading, setLoading] = useState(false);
 
   const invite = async () => {
-    if (!email.trim()) {
-      setMessage("Digite o e-mail do familiar.");
+    const address = email.trim().toLowerCase();
+    if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(address)) {
+      setError("Digite um endereço de e-mail válido.");
       return;
     }
-
     try {
       setLoading(true);
+      setError("");
       setMessage("");
-
-      const result = await api(
-        `/api/families/${family.id}/members/invite`,
-        token,
-        {
-          method: "POST",
-          body: JSON.stringify({ email: email.trim().toLowerCase() }),
-        },
-      );
-
+      const result = await api(`/api/families/${family.id}/members/invite`, token, {
+        method: "POST",
+        body: JSON.stringify({ email: address }),
+      });
       setMessage(result.message || "Convite registrado.");
       setEmail("");
-
-      if (onRefresh) {
-        await onRefresh();
-      }
+      setShowInvite(false);
+      await onRefresh?.();
     } catch (e) {
-      setMessage(e.message || "Não foi possível enviar o convite.");
+      setError(e.message || "Não foi possível registrar o convite.");
     } finally {
       setLoading(false);
     }
@@ -62,213 +84,221 @@ export function Members({ family, token, members = [], onRefresh }) {
 
   return (
     <Screen>
-      <View style={styles.pageIntro}>
-        <Text style={styles.eyebrow}>
-          AS PESSOAS POR TRÁS DAS LEMBRANÇAS
-        </Text>
+      <BackHeader
+        title="Participantes"
+        subtitle={`Gerencie quem compartilha as lembranças de "${family?.name || "este grupo"}".`}
+        onBack={onBack}
+      />
 
-        <Text style={styles.formTitle}>
-          Esta história é feita de muitas vozes.
-        </Text>
-
-        <Text style={styles.formIntro}>
-          Convide quem você ama para registrar, comentar e cuidar das memórias
-          da família.
-        </Text>
-      </View>
-
-      <View style={styles.card}>
-        <View style={styles.sectionHeader}>
-          <View>
-            <Text style={styles.eyebrow}>PARTICIPANTES</Text>
-            <Text style={styles.sectionTitleSmall}>
-              {members.length} pessoas
-            </Text>
-          </View>
-
-          <Icon name="lock" size={17} color={COLORS.muted} />
+      <View style={[S.empty, { alignItems: "flex-start", marginBottom: 22 }]}>
+        <View style={{ flexDirection: "row", alignItems: "center", gap: 10 }}>
+          <Icon name="lock" size={18} color="#5e567a" />
+          <Text style={[S.memoryName, { fontSize: 14 }]}>Grupo privado</Text>
         </View>
-
-        {members.length === 0 ? (
-          <Text style={styles.formIntro}>
-            Nenhum participante encontrado.
-          </Text>
-        ) : (
-          members.map((member) => {
-            const user = member.user || {};
-
-            const memberName = user.name || user.nome || "Familiar";
-            const memberEmail = user.email || "";
-
-            // Aceita os formatos de foto retornados pela API.
-            const memberPhoto =
-              user.photoUrl ||
-              user.foto_perfil ||
-              user.fotoPerfil ||
-              member.photoUrl ||
-              member.foto_perfil ||
-              member.fotoPerfil ||
-              null;
-
-            return (
-              <View style={styles.memberRow} key={member.id}>
-                <Avatar
-                  text={initials(memberName)}
-                  photoUrl={memberPhoto}
-                />
-
-                <View style={{ flex: 1 }}>
-                  <Text style={styles.memberName}>{memberName}</Text>
-                  <Text style={styles.memberEmail}>{memberEmail}</Text>
-                </View>
-
-                <View style={styles.rolePill}>
-                  <Text style={styles.roleText}>
-                    {member.permission === "admin"
-                      ? "admin"
-                      : member.permission === "editor"
-                        ? "edita"
-                        : "vê"}
-                  </Text>
-                </View>
-              </View>
-            );
-          })
-        )}
+        <Text style={[S.emptyBody, { textAlign: "left" }]}>
+          Somente você e os integrantes autorizados podem visualizar este espaço.
+          Cada participante pode registrar suas próprias memórias.
+        </Text>
       </View>
 
-      <View style={[styles.card, { backgroundColor: COLORS.sage }]}>
-        <Text style={styles.eyebrow}>CRESCER JUNTO</Text>
+      {isAdmin && (
+        <View style={{ marginBottom: 22 }}>
+          {!showInvite && (
+            <PrimaryAction
+              label="Convidar participante"
+              icon="user-plus"
+              onPress={() => { setShowInvite(true); setError(""); setMessage(""); }}
+            />
+          )}
+          {showInvite && (
+            <View style={[S.empty, { alignItems: "stretch", gap: 12 }]}>
+              <Text style={[S.heading, { fontSize: 17 }]}>Novo convite</Text>
+              <Text style={[S.emptyBody, { textAlign: "left" }]}>
+                Informe o e-mail da pessoa. O convite aparecerá na área Meus grupos
+                quando ela entrar com essa conta. O e-mail não é enviado automaticamente.
+              </Text>
+              <Text style={S.label}>E-mail do convidado</Text>
+              <TextInput
+                value={email}
+                onChangeText={setEmail}
+                placeholder="pessoa@exemplo.com"
+                placeholderTextColor="#92939a"
+                keyboardType="email-address"
+                autoCapitalize="none"
+                autoCorrect={false}
+                style={S.input}
+                accessibilityLabel="E-mail da pessoa convidada"
+              />
+              <PrimaryAction
+                label="Registrar convite"
+                icon="mail"
+                onPress={invite}
+                loading={loading}
+              />
+              <Pressable
+                onPress={() => { setShowInvite(false); setError(""); }}
+                accessibilityRole="button"
+                style={[S.secondaryButton]}
+              >
+                <Text style={S.secondaryLabel}>Cancelar</Text>
+              </Pressable>
+            </View>
+          )}
+          {!!error && (
+            <View style={[S.error, { marginTop: 12 }]}>
+              <Text style={S.errorText}>{error}</Text>
+            </View>
+          )}
+          {!!message && (
+            <View style={[S.empty, { marginTop: 12 }]}>
+              <Text style={[S.emptyBody, { textAlign: "left" }]}>{message}</Text>
+            </View>
+          )}
+        </View>
+      )}
 
-        <Text style={styles.inviteTitle}>
-          Convide alguém da família.
+      <View style={[S.headingRow, { marginBottom: 10 }]}>
+        <Text style={S.heading}>Integrantes</Text>
+        <Text style={[S.memoryMeta, { fontSize: 12 }]}>
+          {members.length} {members.length === 1 ? "pessoa" : "pessoas"}
         </Text>
-
-        <Text style={styles.formIntro}>
-          A pessoa poderá entrar com o mesmo e-mail e continuar esta história
-          com vocês.
-        </Text>
-
-        <Field
-          label="E-MAIL DO FAMILIAR"
-          value={email}
-          onChangeText={setEmail}
-          placeholder="familiar@exemplo.com"
-          keyboardType="email-address"
-        />
-
-        <Button onPress={invite} loading={loading} icon="arrow-right">
-          Enviar convite
-        </Button>
-
-        {message ? (
-          <Text style={styles.successText}>{message}</Text>
-        ) : null}
       </View>
+      {members.map((member) => {
+        const person = member.user || {};
+        const personName = person.name || person.nome || "Participante";
+        const role = member.permission === "admin" ? "Administrador" :
+          member.permission === "editor" ? "Editor" : "Participante";
+        return (
+          <View key={String(member.id)} style={S.memoryRow}>
+            <Avatar
+              text={initials(personName)}
+              photoUrl={person.photoUrl || person.foto_perfil || null}
+              color="#38384d"
+            />
+            <View style={{ flex: 1 }}>
+              <Text style={S.memoryName} numberOfLines={1}>{personName}</Text>
+              <Text style={S.memoryMeta} numberOfLines={1}>{person.email || ""}</Text>
+            </View>
+            <View style={{ backgroundColor: COLORS.sage, paddingHorizontal: 10, paddingVertical: 6, borderRadius: 12 }}>
+              <Text style={{ color: COLORS.teal, fontSize: 10, fontWeight: "700" }}>
+                {role}
+              </Text>
+            </View>
+          </View>
+        );
+      })}
     </Screen>
   );
 }
 
-export function Settings({ family, token, onFamilyUpdated, onLogout }) {
-  const [name, setName] = useState(family.name || "");
-  const [description, setDescription] = useState(family.description || "");
+export function Settings({
+  family, token, onFamilyUpdated, onBack, onManageMembers, isAdmin = false,
+}) {
+  const [name, setName] = useState(family?.name || "");
+  const [description, setDescription] = useState(family?.description || "");
   const [message, setMessage] = useState("");
+  const [saving, setSaving] = useState(false);
+
+  useEffect(() => {
+    setName(family?.name || "");
+    setDescription(family?.description || "");
+  }, [family?.id]);
 
   const save = async () => {
-    if (!name.trim()) {
-      setMessage("Digite o nome da família.");
+    if (!isAdmin || saving) return;
+    if (name.trim().length < 2 || name.trim().length > 100) {
+      setMessage("O nome do grupo deve ter entre 2 e 100 caracteres.");
       return;
     }
-
     try {
+      setSaving(true);
       setMessage("");
-
       const result = await api(`/api/families/${family.id}`, token, {
         method: "PATCH",
-        body: JSON.stringify({
-          name: name.trim(),
-          description: description.trim(),
-        }),
+        body: JSON.stringify({ name: name.trim(), description: description.trim() }),
       });
-
-      if (onFamilyUpdated && result.family) {
-        onFamilyUpdated(result.family);
-      }
-
-      setMessage("Alterações salvas.");
+      onFamilyUpdated?.(result.family);
+      setMessage("Alterações salvas com sucesso.");
     } catch (e) {
-      setMessage(e.message || "Não foi possível salvar as configurações.");
+      setMessage(e.message || "Não foi possível salvar o grupo.");
+    } finally {
+      setSaving(false);
     }
   };
 
   return (
     <Screen>
-      <View style={styles.pageIntro}>
-        <Text style={styles.eyebrow}>CUIDAR DO ESPAÇO</Text>
+      <BackHeader
+        title="Configurações do grupo"
+        subtitle="Organize os detalhes e controle quem pode participar deste espaço."
+        onBack={onBack}
+      />
 
-        <Text style={styles.formTitle}>Configurações</Text>
-
-        <Text style={styles.formIntro}>
-          Deixe este espaço cada vez mais parecido com vocês.
-        </Text>
+      <View style={[S.empty, { flexDirection: "row", alignItems: "center", marginBottom: 22 }]}>
+        <Icon name="lock" color="#655e82" size={25} />
+        <View style={{ flex: 1, gap: 4 }}>
+          <Text style={S.memoryName}>Espaço privado</Text>
+          <Text style={[S.emptyBody, { textAlign: "left" }]}>
+            Apenas integrantes autorizados podem ver as memórias.
+          </Text>
+        </View>
       </View>
 
-      <View style={styles.card}>
-        <View style={styles.settingsIdentity}>
-          <Avatar text={initials(name)} color={COLORS.terracotta} />
-
-          <View>
-            <Text style={styles.eyebrow}>IDENTIDADE</Text>
-            <Text style={styles.sectionTitleSmall}>
-              A família como ela é
-            </Text>
-          </View>
-        </View>
-
-        <Field
-          label="NOME DA FAMÍLIA"
+      <View style={[S.field, { marginBottom: 14 }]}>
+        <Text style={S.label}>Nome do grupo</Text>
+        <TextInput
           value={name}
           onChangeText={setName}
-          placeholder="Família Oliveira"
+          editable={isAdmin && !saving}
+          style={[S.input, !isAdmin && { backgroundColor: "#f4f4f7" }]}
+          accessibilityLabel="Nome do grupo"
         />
-
-        <Field
-          label="UMA FRASE SOBRE VOCÊS"
+      </View>
+      <View style={S.field}>
+        <Text style={S.label}>Descrição (opcional)</Text>
+        <TextInput
           value={description}
           onChangeText={setDescription}
-          placeholder="onde sempre cabe mais um"
+          editable={isAdmin && !saving}
           multiline
+          style={[S.input, { minHeight: 100, paddingVertical: 12, textAlignVertical: "top" }, !isAdmin && { backgroundColor: "#f4f4f7" }]}
+          accessibilityLabel="Descrição do grupo"
         />
-
-        <View style={styles.privacyRow}>
-          <View style={styles.privacyIcon}>
-            <Icon name="lock" size={16} color={COLORS.teal} />
-          </View>
-
-          <View style={{ flex: 1 }}>
-            <Text style={styles.memberName}>Espaço privado</Text>
-            <Text style={styles.memberEmail}>
-              Apenas convidados veem as memórias.
-            </Text>
-          </View>
-
-          <View style={styles.toggle}>
-            <View style={styles.toggleDot} />
-          </View>
-        </View>
-
-        <Button onPress={save} icon="check">
-          Salvar configurações
-        </Button>
-
-        {message ? (
-          <Text style={styles.successText}>{message}</Text>
-        ) : null}
       </View>
 
-      <Button variant="danger" onPress={onLogout} icon="log-out">
-        Sair da conta
-      </Button>
+      {isAdmin ? (
+        <PrimaryAction label="Salvar alterações" icon="check" onPress={save} loading={saving} />
+      ) : (
+        <Text style={[S.note, { textAlign: "left" }]}>
+          Apenas administradores podem alterar os dados do grupo.
+        </Text>
+      )}
+      {!!message && (
+        <View style={[S.empty, { marginTop: 12 }]}>
+          <Text style={S.emptyBody}>{message}</Text>
+        </View>
+      )}
+
+      <View style={[S.headingRow, { marginTop: 30 }]}>
+        <Text style={S.heading}>Participantes</Text>
+      </View>
+      <Pressable
+        onPress={onManageMembers}
+        accessibilityRole="button"
+        accessibilityLabel="Visualizar participantes e convites"
+        style={[S.memoryRow, { minHeight: 66 }]}
+      >
+        <View style={S.memoryIconBox}>
+          <Icon name="users" size={21} color={COLORS.teal} />
+        </View>
+        <View style={{ flex: 1 }}>
+          <Text style={S.memoryName}>Gerenciar participantes</Text>
+          <Text style={S.memoryMeta}>
+            {isAdmin ? "Convidar e consultar integrantes" : "Visualizar integrantes"}
+          </Text>
+        </View>
+        <Icon name="chevron-right" size={20} color={COLORS.muted} />
+      </Pressable>
     </Screen>
   );
 }
