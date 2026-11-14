@@ -47,11 +47,11 @@ const publicUser = (u) => ({
   photoUrl: u.foto_perfil ? signedFileUrl('avatar', u.id_usuario, u.id_usuario) : null,
   createdAt: u.data_criacao,
 });
-const publicFamily = (f) => ({
+const publicFamily = (f, viewerId) => ({
   id: asId(f.id_grupo),
   name: f.nome,
   description: f.descricao || '',
-  photoUrl: null, // Capa de grupo ainda não implementada; não expor URLs de arquivo abertas.
+  photoUrl: f.foto_grupo && viewerId ? signedFileUrl('group', f.id_grupo, viewerId) : null,
   createdAt: f.data_criacao,
 });
 const publicMember = (row) => ({
@@ -66,7 +66,10 @@ const mediaType = (mime = '') => mime.startsWith('image/') ? 'image' : mime.star
 const publicMedia = (m, viewerId) => ({
   id: asId(m.id_midia),
   authorId: asId(m.id_usuario),
-  title: m.descricao || path.basename(m.arquivo),
+  title: m.titulo || m.descricao || path.basename(m.arquivo),
+  caption: m.descricao || '',
+  place: m.local_lembranca || '',
+  story: m.historia || '',
   url: signedFileUrl('media', m.id_midia, viewerId),
   type: m.tipo_midia,
   createdAt: m.data_upload,
@@ -92,7 +95,7 @@ async function listFamiliesForUser(userId) {
      WHERE pg.id_usuario = $1 ORDER BY g.data_criacao DESC`,
     [userId],
   );
-  return result.rows.map(publicFamily);
+  return result.rows.map((row) => publicFamily(row, userId));
 }
 
 async function assertChapterAccess(chapterId, userId) {
@@ -127,6 +130,7 @@ async function getChapter(chapterId, userId) {
     familyId: asId(base.id_grupo),
     title: base.nome,
     description: base.descricao || '',
+    coverUrl: base.foto_capa ? signedFileUrl('album', base.id_subgrupo, userId) : null,
     eventDate: base.data_evento ? (base.data_evento.toISOString ? base.data_evento.toISOString().slice(0, 10) : String(base.data_evento).slice(0, 10)) : null,
     visibility: base.visibilidade,
     createdAt: base.data_criacao,
@@ -154,7 +158,7 @@ async function familyPayload(familyId, userId) {
     if (chapter) chapters.push(chapter);
   }
   return {
-    family: publicFamily(familyResult.rows[0]),
+    family: publicFamily(familyResult.rows[0], userId),
     members: membersResult.rows.map(publicMember),
     chapters,
   };
@@ -169,7 +173,7 @@ router.get('/api/files/:kind/:id', async (req, res, next) => {
   const signature = String(req.query.sig || '');
   const now = Math.floor(Date.now() / 1000);
   const validSignature = new RegExp('^[a-f0-9]{64}$').test(signature);
-  if (!['media', 'avatar'].includes(kind) ||
+  if (!['media', 'avatar', 'group', 'album'].includes(kind) ||
       !Number.isSafeInteger(id) || id < 1 ||
       !Number.isSafeInteger(viewer) || viewer < 1 ||
       !Number.isSafeInteger(expires) ||
@@ -191,6 +195,18 @@ router.get('/api/files/:kind/:id', async (req, res, next) => {
          JOIN subgrupo s ON s.id_subgrupo=m.id_subgrupo
          JOIN participante_grupo pg ON pg.id_grupo=s.id_grupo AND pg.id_usuario=$2
          WHERE m.id_midia=$1`, [id, viewer],
+      );
+    } else if (kind === 'group') {
+      result = await query(
+        `SELECT g.foto_grupo AS arquivo FROM grupo g
+         JOIN participante_grupo pg ON pg.id_grupo=g.id_grupo AND pg.id_usuario=$2
+         WHERE g.id_grupo=$1`, [id, viewer]
+      );
+    } else if (kind === 'album') {
+      result = await query(
+        `SELECT s.foto_capa AS arquivo FROM subgrupo s
+         JOIN participante_grupo pg ON pg.id_grupo=s.id_grupo AND pg.id_usuario=$2
+         WHERE s.id_subgrupo=$1`, [id, viewer]
       );
     } else {
       result = await query(
@@ -398,7 +414,7 @@ router.post('/api/families', authenticate, async (req, res, next) => {
     const family = created.rows[0];
     await client.query("INSERT INTO participante_grupo (id_usuario,id_grupo,permissao) VALUES ($1,$2,'admin')", [req.user.id_usuario, family.id_grupo]);
     await client.query('COMMIT');
-    res.status(201).json({ family: publicFamily(family) });
+    res.status(201).json({ family: publicFamily(family, req.user.id_usuario) });
   } catch (err) { await client.query('ROLLBACK').catch(() => {}); next(err); }
   finally { client.release(); }
 });
@@ -420,7 +436,7 @@ router.patch('/api/families/:id', authenticate, requireFamilyMember, async (req,
   if (name.length < 2 || name.length > 100) return res.status(400).json({ error: { message: 'O nome da família deve ter de 2 a 100 caracteres.' } });
   try {
     const result = await query('UPDATE grupo SET nome=$1, descricao=$2 WHERE id_grupo=$3 RETURNING *', [name, description || null, req.familyId]);
-    res.json({ family: publicFamily(result.rows[0]) });
+    res.json({ family: publicFamily(result.rows[0], req.user.id_usuario) });
   } catch (err) { next(err); }
 });
 
