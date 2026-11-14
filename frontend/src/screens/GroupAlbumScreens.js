@@ -60,7 +60,7 @@ export function GroupDashboard({
         actions={[
           { name: "search", label: "Pesquisar álbuns do grupo", onPress: () => setSearchOpen((v) => !v) },
           { name: "user-plus", label: "Ver participantes e convites", onPress: onMembers },
-          { name: "users", label: "Configurações do grupo", onPress: onSettings },
+          { name: "settings", label: "Configurações do grupo", onPress: onSettings },
         ]}
       />
       <View style={{
