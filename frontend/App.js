@@ -34,6 +34,11 @@ export default function App() {
   const [screen, setScreen] = useState("welcome");
   const [selected, setSelected] = useState(null);
   const [authMode, setAuthMode] = useState("login");
+  const [createFamilyReturn, setCreateFamilyReturn] = useState("groups");
+  const [invitations, setInvitations] = useState([]);
+  const [invitationBusyId, setInvitationBusyId] = useState(null);
+  const [invitationsError, setInvitationsError] = useState("");
+  const [groupBack, setGroupBack] = useState("groups");
 
   const refreshFamily = async (
     familyId = family?.id,
@@ -142,6 +147,53 @@ export default function App() {
     };
   }, []);
 
+  // Busca convites pendentes sem conceder acesso antes da aceitação.
+  const loadInvitations = async (activeToken = token) => {
+    if (!activeToken) return;
+    try {
+      const result = await api("/api/invitations", activeToken);
+      setInvitations(result.invitations || []);
+      setInvitationsError("");
+    } catch (error) {
+      setInvitationsError(error?.message || "Não foi possível consultar os convites.");
+    }
+  };
+
+  useEffect(() => {
+    if (!token || (screen !== "home" && screen !== "groups")) return;
+    loadInvitations(token);
+  }, [screen, token]);
+
+  const answerInvitation = async (invitation, response) => {
+    if (!invitation?.id || invitationBusyId) return;
+    try {
+      setInvitationBusyId(invitation.id);
+      setInvitationsError("");
+      await api(`/api/invitations/${invitation.id}/${response}`, token, { method: "POST" });
+      const me = await api("/api/auth/me", token);
+      setFamilies(me.families || []);
+      await loadInvitations(token);
+      if (response === "accept") {
+        const addedGroup = (me.families || []).find((item) =>
+          String(item.id) === String(invitation.groupId)
+        );
+        if (addedGroup) {
+          await refreshFamily(addedGroup.id, token);
+          setScreen("home");
+        }
+      }
+    } catch (error) {
+      setInvitationsError(error?.message || "Não foi possível responder ao convite.");
+    } finally {
+      setInvitationBusyId(null);
+    }
+  };
+
+  const openCreateFamily = (returnTo = "groups") => {
+    setCreateFamilyReturn(returnTo);
+    setScreen("createFamily");
+  };
+
   // Atualiza a lista de grupos ao abrir a tela correspondente.
   useEffect(() => {
     if (screen !== "groups" || !token) return undefined;
@@ -163,6 +215,7 @@ export default function App() {
     setUser(null);
     setFamily(null);
     setFamilies([]);
+    setInvitations([]);
     setMembers([]);
     setChapters([]);
     setSelected(null);
@@ -217,6 +270,16 @@ export default function App() {
       ...current.filter((item) => String(item.id) !== String(newFamily.id)),
     ]);
     setScreen("home");
+  };
+
+  const openGroupSettings = (returnTo = "groups") => {
+    setGroupBack(returnTo);
+    setScreen("settings");
+  };
+
+  const openGroupMembers = (returnTo = "groups") => {
+    setGroupBack(returnTo);
+    setScreen("members");
   };
 
   const selectFamily = async (selectedFamily) => {
@@ -297,7 +360,7 @@ export default function App() {
       <PrototypeCreateFamily
         token={token}
         onCreated={familyCreated}
-        onCancel={family ? () => setScreen("groups") : undefined}
+        onCancel={() => setScreen(createFamilyReturn)}
       />
     );
   }
@@ -357,8 +420,9 @@ export default function App() {
           onShowTimeline={() => setScreen("timeline")}
           onCreateAlbum={() => setScreen("newChapter")}
           canManage={currentUserIsAdmin}
-          onCreateGroup={() => setScreen("createFamily")}
+          onCreateGroup={() => openCreateFamily("home")}
           searchMode={screen === "search"}
+          onShowGroups={() => setScreen("groups")}
         />
       );
       break;
@@ -369,10 +433,14 @@ export default function App() {
           families={families}
           activeFamilyId={family?.id}
           onSelectFamily={selectFamily}
-          onEditFamily={() => setScreen("settings")}
-          onAddFamily={() => setScreen("createFamily")}
-          onManageMembers={() => setScreen("members")}
+          onEditFamily={() => openGroupSettings("groups")}
+          onAddFamily={() => openCreateFamily("groups")}
+          onManageMembers={() => openGroupMembers("groups")}
           isCurrentAdmin={currentUserIsAdmin}
+          invitations={invitations}
+          invitationBusyId={invitationBusyId}
+          invitationsError={invitationsError}
+          onRespondInvitation={answerInvitation}
         />
       );
       break;
@@ -400,6 +468,8 @@ export default function App() {
           token={token}
           members={members}
           onRefresh={() => refreshFamily()}
+          onBack={() => setScreen(groupBack)}
+          isAdmin={currentUserIsAdmin}
         />
       );
       break;
@@ -423,8 +493,15 @@ export default function App() {
         <Settings
           family={family}
           token={token}
-          onFamilyUpdated={setFamily}
-          onLogout={logout}
+          onFamilyUpdated={(updated) => {
+            setFamily(updated);
+            setFamilies((previous) => previous.map((item) =>
+              String(item.id) === String(updated.id) ? updated : item
+            ));
+          }}
+          onBack={() => setScreen(groupBack)}
+          onManageMembers={() => openGroupMembers("settings")}
+          isAdmin={currentUserIsAdmin}
         />
       );
       break;
@@ -438,7 +515,7 @@ export default function App() {
           onShowTimeline={() => setScreen("timeline")}
           onCreateAlbum={() => setScreen("newChapter")}
           canManage={currentUserIsAdmin}
-          onCreateGroup={() => setScreen("createFamily")}
+          onCreateGroup={() => openCreateFamily("home")}
         />
       );
   }
