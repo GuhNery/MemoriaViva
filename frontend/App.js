@@ -414,6 +414,7 @@ export default function App() {
       family={null}
       screen={screen}
       setScreen={setScreen}
+      hideHeader={screen === "profile"}
       onOpenSettings={() => setScreen("profile")}
     >
       {content}
