@@ -1,7 +1,7 @@
 import React, { useMemo, useState } from "react";
 import { ActivityIndicator, Image, Pressable, SafeAreaView, ScrollView, Text, TextInput, View } from "react-native";
 import { Icon } from "../components/ui";
-import { api } from "../services/api";
+import { api, assetUrl } from "../services/api";
 import S from "../theme/prototypeInternalStyles";
 
 const brandLogo = require("../../assets/logo-memoria-viva.jpg");
@@ -254,7 +254,7 @@ export function PrototypeGroups({
 }) {
   return (
     <ScrollView showsVerticalScrollIndicator={false} contentContainerStyle={S.scroll}>
-      <Text style={S.groupsTitle}>Meus grupos</Text>
+      <Text style={[S.groupsTitle, { marginTop: 18, marginBottom: 26 }]}>Meus grupos</Text>
       {invitations.length > 0 && (
         <View style={{ marginBottom: 25 }}>
           <View style={[S.headingRow, { marginBottom: 10 }]}>
@@ -321,15 +321,18 @@ export function PrototypeGroups({
       {families.map((family) => {
         const selected = String(family.id) === String(activeFamilyId);
         return (
-          <View key={String(family.id)} style={S.groupCard}>
+          <View key={String(family.id)} style={[S.groupCard, { minHeight: 108 }]}>
             <Pressable
               onPress={() => onSelectFamily(family)}
               accessibilityRole="button"
               accessibilityLabel={"Selecionar grupo " + family.name}
               style={{ flex: 1, minHeight: 44, alignItems: "center", flexDirection: "row", gap: 12 }}
             >
-              <View style={S.groupIcon}>
-                <Icon name="users" color="#25262e" size={25} />
+              <View style={[S.groupIcon, { width: 49, height: 49, backgroundColor: "#f5f4f8", borderRadius: 9, overflow: "hidden" }]}>
+                {family.photoUrl ? (
+                  <Image source={{ uri: assetUrl(family.photoUrl) }}
+                    style={{ width: "100%", height: "100%" }} resizeMode="cover" />
+                ) : <Icon name="users" color="#25262e" size={26} />}
               </View>
               <View style={{ flex: 1 }}>
                 <Text style={S.groupTitle} numberOfLines={1}>{family.name}</Text>
@@ -362,17 +365,6 @@ export function PrototypeGroups({
         <Icon name="plus" color="#2b2b31" size={24} />
         <Text style={S.addGroupText}>Adicione um grupo</Text>
       </Pressable>
-      {!!activeFamilyId && (
-      <Pressable
-        onPress={onManageMembers}
-        accessibilityRole="button"
-        accessibilityLabel="Gerenciar membros do grupo ativo"
-        style={({ pressed }) => [S.secondaryButton, { marginTop: 20 }, pressed && { opacity: 0.7 }]}
-      >
-        <Icon name="user-plus" size={18} color="#33343a" />
-        <Text style={S.secondaryLabel}>Integrantes do grupo ativo</Text>
-      </Pressable>
-      )}
     </ScrollView>
   );
 }
