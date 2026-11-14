@@ -6,6 +6,7 @@ import {
 import { api, assetUrl, COLORS } from "../services/api";
 import { Icon, Screen } from "../components/ui";
 import S from "../theme/prototypeInternalStyles";
+import { maskBrazilianDate, isoToBrazilianDate, brazilianDateToIso } from "../utils/memoryDate";
 
 function niceDate(raw) {
   if (!raw) return "Data não informada";
@@ -45,7 +46,7 @@ export function MediaDetail({ mediaId, token, currentUserId, onBack, onRefresh, 
     setCaption(result.media.title || "");
     setPlace(result.media.place || "");
     setStory(result.media.story || "");
-    setMemoryDate(result.media.memoryDate || "");
+    setMemoryDate(isoToBrazilianDate(result.media.memoryDate));
     return result.media;
   };
 
@@ -59,7 +60,7 @@ export function MediaDetail({ mediaId, token, currentUserId, onBack, onRefresh, 
           setCaption(loaded.title || "");
           setPlace(loaded.place || "");
           setStory(loaded.story || "");
-          setMemoryDate(loaded.memoryDate || "");
+          setMemoryDate(isoToBrazilianDate(loaded.memoryDate));
           setError("");
         }
       })
@@ -69,12 +70,17 @@ export function MediaDetail({ mediaId, token, currentUserId, onBack, onRefresh, 
   }, [mediaId, token]);
 
   const save = async () => {
+    const isoDate = brazilianDateToIso(memoryDate);
+    if (!isoDate) {
+      setError("Informe uma data válida no formato DD/MM/AAAA. Ex.: 14/11/2026.");
+      return;
+    }
     try {
       setBusy(true);
       setError("");
       await api(`/api/media/${mediaId}`, token, {
         method: "PATCH",
-        body: JSON.stringify({ title: caption.trim(), memoryDate, place: place.trim(), story: story.trim() }),
+        body: JSON.stringify({ title: caption.trim(), memoryDate: isoDate, place: place.trim(), story: story.trim() }),
       });
       await onRefresh?.();
       await load();
@@ -252,13 +258,17 @@ export function MediaDetail({ mediaId, token, currentUserId, onBack, onRefresh, 
             maxLength={150}
             accessibilityLabel="Nome da memória"
           />
-          <Text style={S.label}>Data da lembrança (AAAA-MM-DD)</Text>
+          <Text style={S.label}>Data da lembrança (DD/MM/AAAA)</Text>
           <TextInput
             value={memoryDate}
-            onChangeText={setMemoryDate}
-            placeholder="2024-07-15"
+            onChangeText={(text) => setMemoryDate(maskBrazilianDate(text))}
+            maxLength={10}
+            keyboardType="number-pad"
+            autoCorrect={false}
+            placeholder="DD/MM/AAAA"
             style={S.input}
             accessibilityLabel="Data da lembrança"
+            accessibilityHint="Digite apenas os números do dia, mês e ano. As barras aparecem automaticamente."
           />
           <Text style={S.label}>Local (opcional)</Text>
           <TextInput value={place} onChangeText={setPlace}
@@ -280,7 +290,7 @@ export function MediaDetail({ mediaId, token, currentUserId, onBack, onRefresh, 
             onPress={() => {
               setEditing(false);
               setCaption(media.title || "");
-              setMemoryDate(media.memoryDate || "");
+              setMemoryDate(isoToBrazilianDate(media.memoryDate));
               setPlace(media.place || "");
               setStory(media.story || "");
             }}
