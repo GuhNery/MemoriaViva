@@ -160,13 +160,58 @@ export function TopBar({ title, onBack, action }) {
   );
 }
 
+// Tela de carregamento alinhada à abertura do Figma.
+const memoriaVivaLogo = require("../../assets/logo-memoria-viva.jpg");
+
 export function LoadingScreen() {
   return (
-    <View style={styles.centerScreen}>
-      <Logo />
-      <ActivityIndicator style={{ marginTop: 22 }} color={COLORS.teal} />
-      <Text style={styles.loadingText}>abrindo suas memórias…</Text>
-    </View>
+    <SafeAreaView style={{ flex: 1, backgroundColor: "#13161b" }}>
+      <StatusBar barStyle="light-content" backgroundColor="#13161b" />
+      <View style={{
+        flex: 1,
+        width: "100%",
+        maxWidth: 460,
+        alignSelf: "center",
+        alignItems: "center",
+        justifyContent: "center",
+        paddingHorizontal: 28,
+      }}>
+        <Image
+          source={memoriaVivaLogo}
+          style={{ width: 188, height: 188, borderRadius: 94 }}
+          resizeMode="contain"
+          accessibilityLabel="Logotipo Memória Viva"
+        />
+        <Text style={{
+          color: "#faf9fd",
+          fontSize: 22,
+          fontWeight: "400",
+          letterSpacing: 2.5,
+          textAlign: "center",
+          marginTop: 19,
+        }}>
+          MEMÓRIA VIVA
+        </Text>
+        <ActivityIndicator
+          size="small"
+          color="#cabaf5"
+          style={{ marginTop: 38 }}
+          accessibilityLabel="Carregando aplicativo"
+        />
+        <Text
+          accessibilityLiveRegion="polite"
+          style={{
+            marginTop: 14,
+            color: "#c0bccc",
+            fontSize: 13,
+            textAlign: "center",
+            letterSpacing: 0.2,
+          }}
+        >
+          Preparando suas memórias...
+        </Text>
+      </View>
+    </SafeAreaView>
   );
 }
 
