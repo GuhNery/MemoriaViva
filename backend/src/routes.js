@@ -30,19 +30,28 @@ const upload = multer({
   },
 });
 
+// Links temporários de mídia não incluem o JWT de autenticação do usuário.
+const fileExpirySeconds = 10 * 60;
+function signedFileUrl(kind, id, viewerId) {
+  const expires = Math.floor(Date.now() / 1000) + fileExpirySeconds;
+  const payload = `${kind}:${id}:${viewerId}:${expires}`;
+  const signature = crypto.createHmac('sha256', process.env.JWT_SECRET)
+    .update(payload).digest('hex');
+  return `/api/files/${kind}/${id}?viewer=${viewerId}&expires=${expires}&sig=${signature}`;
+}
 const asId = (value) => String(value);
 const publicUser = (u) => ({
   id: asId(u.id_usuario),
   name: u.nome,
   email: u.email,
-  photoUrl: u.foto_perfil || null,
+  photoUrl: u.foto_perfil ? signedFileUrl('avatar', u.id_usuario, u.id_usuario) : null,
   createdAt: u.data_criacao,
 });
 const publicFamily = (f) => ({
   id: asId(f.id_grupo),
   name: f.nome,
   description: f.descricao || '',
-  photoUrl: f.foto_grupo || null,
+  photoUrl: null, // Capa de grupo ainda não implementada; não expor URLs de arquivo abertas.
   createdAt: f.data_criacao,
 });
 const publicMember = (row) => ({
@@ -50,13 +59,14 @@ const publicMember = (row) => ({
   userId: asId(row.id_usuario),
   permission: row.permissao,
   joinedAt: row.data_entrada,
-  user: { id: asId(row.id_usuario), name: row.nome, email: row.email, photoUrl: row.foto_perfil || null },
+  user: { id: asId(row.id_usuario), name: row.nome, email: row.email,
+    photoUrl: row.foto_perfil ? signedFileUrl('avatar', row.id_usuario, row.id_usuario) : null },
 });
 const mediaType = (mime = '') => mime.startsWith('image/') ? 'image' : mime.startsWith('video/') ? 'video' : mime.startsWith('audio/') ? 'audio' : 'file';
-const publicMedia = (m) => ({
+const publicMedia = (m, viewerId) => ({
   id: asId(m.id_midia),
   title: m.descricao || path.basename(m.arquivo),
-  url: m.arquivo.startsWith('http') ? m.arquivo : m.arquivo,
+  url: signedFileUrl('media', m.id_midia, viewerId),
   type: m.tipo_midia,
   createdAt: m.data_upload,
   memoryDate: m.data_lembranca
@@ -121,7 +131,7 @@ async function getChapter(chapterId, userId) {
     createdAt: base.data_criacao,
     createdBy: asId(base.id_criador),
     memberIds: members.rows.map((r) => asId(r.id_usuario)),
-    media: media.rows.map(publicMedia),
+    media: media.rows.map((m) => publicMedia(m, userId)),
     comments: comments.rows.map(publicComment),
   };
 }
@@ -552,7 +562,7 @@ router.post('/api/chapters/:id/media', authenticate, (req, res, next) => {
       'INSERT INTO midia (arquivo,descricao,tipo_midia,id_usuario,id_subgrupo,data_lembranca) VALUES ($1,$2,$3,$4,$5,$6) RETURNING *',
       [url, caption || req.file.originalname.slice(0, 255), type, req.user.id_usuario, req.params.id, memoryDate],
     );
-    res.status(201).json({ media: publicMedia(inserted.rows[0]) });
+    res.status(201).json({ media: publicMedia(inserted.rows[0], req.user.id_usuario) });
   } catch (err) {
     await fs.promises.unlink(req.file.path).catch(() => {});
     next(err);
