@@ -369,7 +369,7 @@ router.post('/api/families/:familyId/members/invite', authenticate, requireFamil
     return res.status(403).json({ error: { message: 'Somente administradores podem convidar pessoas.' } });
   }
   const email = String(req.body.email || '').trim().toLowerCase();
-  if (!/^[^\\s@]+@[^\\s@]+\\.[^\\s@]+$/.test(email) || email.length > 150) {
+  if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email) || email.length > 150) {
     return res.status(400).json({ error: { message: 'Informe um e-mail válido.' } });
   }
   if (email === String(req.user.email).toLowerCase()) {
