@@ -11,7 +11,7 @@ function memoryDateLabel(raw) {
     new Intl.DateTimeFormat("pt-BR", { day: "2-digit", month: "long", year: "numeric" }).format(date);
 }
 
-export function MemoryTimeline({ chapters = [], onOpen, onBack }) {
+export function MemoryTimeline({ chapters = [], onOpen, onOpenMedia, onBack }) {
   const [oldestFirst, setOldestFirst] = useState(false);
 
   const groups = useMemo(() => {
@@ -93,7 +93,7 @@ export function MemoryTimeline({ chapters = [], onOpen, onBack }) {
             {group.entries.map(({ album, media }) => (
               <Pressable
                 key={String(album.id) + "-" + String(media.id)}
-                onPress={() => onOpen(album)}
+                onPress={() => onOpenMedia(media, album)}
                 accessibilityRole="button"
                 accessibilityLabel={"Abrir " + (media.title || "lembrança") + " no álbum " + album.title}
                 style={({ pressed }) => [S.memoryRow, { paddingHorizontal: 11 }, pressed && { opacity: 0.72 }]}
