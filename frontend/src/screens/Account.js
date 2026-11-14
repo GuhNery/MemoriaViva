@@ -50,12 +50,36 @@ function PrimaryAction({ label, icon, onPress, loading = false, disabled = false
   );
 }
 
-export function Members({ family, token, members = [], onRefresh, onBack, isAdmin = false }) {
+export function Members({ family, token, members = [], onRefresh, onBack, isAdmin = false, currentUserId }) {
   const [showInvite, setShowInvite] = useState(false);
   const [email, setEmail] = useState("");
   const [message, setMessage] = useState("");
   const [error, setError] = useState("");
   const [loading, setLoading] = useState(false);
+  const [removingId, setRemovingId] = useState(null);
+  const [deleteMemberMedia, setDeleteMemberMedia] = useState(false);
+  const [removingBusy, setRemovingBusy] = useState(false);
+
+  const removeMember = async () => {
+    if (!removingId || removingBusy || !isAdmin) return;
+    try {
+      setRemovingBusy(true);
+      setError("");
+      setMessage("");
+      const result = await api(`/api/families/${family.id}/members/${removingId}`, token, {
+        method: "DELETE",
+        body: JSON.stringify({ deleteMedia: deleteMemberMedia }),
+      });
+      setMessage(result.message || "Participante removido.");
+      setRemovingId(null);
+      setDeleteMemberMedia(false);
+      await onRefresh?.();
+    } catch (e) {
+      setError(e.message || "Não foi possível remover o integrante.");
+    } finally {
+      setRemovingBusy(false);
+    }
+  };
 
   const invite = async () => {
     const address = email.trim().toLowerCase();
@@ -168,22 +192,81 @@ export function Members({ family, token, members = [], onRefresh, onBack, isAdmi
         const personName = person.name || person.nome || "Participante";
         const role = member.permission === "admin" ? "Administrador" :
           member.permission === "editor" ? "Editor" : "Participante";
+        const canRemove = isAdmin && member.permission !== "admin" &&
+          String(member.userId) !== String(currentUserId);
         return (
-          <View key={String(member.id)} style={S.memoryRow}>
-            <Avatar
-              text={initials(personName)}
-              photoUrl={person.photoUrl || person.foto_perfil || null}
-              color="#38384d"
-            />
-            <View style={{ flex: 1 }}>
-              <Text style={S.memoryName} numberOfLines={1}>{personName}</Text>
-              <Text style={S.memoryMeta} numberOfLines={1}>{person.email || ""}</Text>
+          <View key={String(member.id)} style={{ marginBottom: 13 }}>
+            <View style={[S.memoryRow, { marginBottom: 0 }]}>
+              <Avatar
+                text={initials(personName)}
+                photoUrl={person.photoUrl || person.foto_perfil || null}
+                color="#38384d"
+              />
+              <View style={{ flex: 1 }}>
+                <Text style={S.memoryName} numberOfLines={1}>{personName}</Text>
+                <Text style={S.memoryMeta} numberOfLines={1}>{person.email || ""}</Text>
+              </View>
+              {canRemove ? (
+                <Pressable
+                  onPress={() => { setRemovingId(member.userId); setDeleteMemberMedia(false); setError(""); }}
+                  accessibilityRole="button"
+                  accessibilityLabel={"Remover " + personName + " do grupo"}
+                  style={{ minWidth: 44, minHeight: 44, alignItems: "center", justifyContent: "center" }}
+                >
+                  <Icon name="user-x" size={19} color={COLORS.danger} />
+                </Pressable>
+              ) : (
+                <View style={{ backgroundColor: COLORS.sage, paddingHorizontal: 10, paddingVertical: 6, borderRadius: 12 }}>
+                  <Text style={{ color: COLORS.teal, fontSize: 10, fontWeight: "700" }}>{role}</Text>
+                </View>
+              )}
             </View>
-            <View style={{ backgroundColor: COLORS.sage, paddingHorizontal: 10, paddingVertical: 6, borderRadius: 12 }}>
-              <Text style={{ color: COLORS.teal, fontSize: 10, fontWeight: "700" }}>
-                {role}
-              </Text>
-            </View>
+            {removingId === member.userId && (
+              <View style={[S.empty, { alignItems: "stretch", gap: 11, marginTop: 8 }]}>
+                <Text style={[S.memoryName, { fontSize: 15 }]}>Remover {personName}?</Text>
+                <Text style={[S.emptyBody, { textAlign: "left" }]}>
+                  O acesso a este grupo será retirado. A conta da pessoa não será excluída.
+                  O que deseja fazer com as mídias que ela adicionou aqui?
+                </Text>
+                <Pressable
+                  onPress={() => setDeleteMemberMedia(false)}
+                  accessibilityRole="button"
+                  style={[S.secondaryButton, !deleteMemberMedia && { borderColor: "#6e608f", backgroundColor: "#f0ecf9" }]}
+                >
+                  <Icon name={!deleteMemberMedia ? "check-circle" : "circle"} size={18} color="#655a85" />
+                  <Text style={S.secondaryLabel}>Manter as mídias no grupo</Text>
+                </Pressable>
+                <Pressable
+                  onPress={() => setDeleteMemberMedia(true)}
+                  accessibilityRole="button"
+                  style={[S.secondaryButton, deleteMemberMedia && { borderColor: "#af5360", backgroundColor: "#fff1f2" }]}
+                >
+                  <Icon name={deleteMemberMedia ? "check-circle" : "circle"} size={18} color={COLORS.danger} />
+                  <Text style={[S.secondaryLabel, deleteMemberMedia && { color: COLORS.danger }]}>
+                    Excluir as mídias dessa pessoa
+                  </Text>
+                </Pressable>
+                {deleteMemberMedia && (
+                  <Text style={[S.emptyBody, { textAlign: "left", color: COLORS.danger }]}>
+                    A exclusão dessas mídias e dos comentários associados a elas não poderá ser desfeita.
+                  </Text>
+                )}
+                <PrimaryAction
+                  label={deleteMemberMedia ? "Remover e excluir mídias" : "Remover e manter mídias"}
+                  icon="user-minus"
+                  onPress={removeMember}
+                  loading={removingBusy}
+                />
+                <Pressable
+                  onPress={() => setRemovingId(null)}
+                  disabled={removingBusy}
+                  accessibilityRole="button"
+                  style={S.secondaryButton}
+                >
+                  <Text style={S.secondaryLabel}>Cancelar</Text>
+                </Pressable>
+              </View>
+            )}
           </View>
         );
       })}
