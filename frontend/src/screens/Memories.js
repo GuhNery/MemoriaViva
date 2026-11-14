@@ -488,10 +488,13 @@ export function ChapterDetail({
   onRefresh,
   onEdit,
   onDelete,
+  canManage = false,
 }) {
   const [comment, setComment] = useState("");
   const [error, setError] = useState("");
   const [uploading, setUploading] = useState(false);
+  const [memoryDate, setMemoryDate] = useState(new Date().toISOString().slice(0, 10));
+  const [memoryCaption, setMemoryCaption] = useState("");
 
   const addComment = async () => {
     if (!comment.trim()) return;
@@ -513,6 +516,13 @@ export function ChapterDetail({
 
   const upload = async () => {
     if (uploading) return;
+    const parsedDate = /^\d{4}-\d{2}-\d{2}$/.test(memoryDate)
+      ? new Date(`${memoryDate}T12:00:00Z`)
+      : new Date(NaN);
+    if (Number.isNaN(parsedDate.getTime()) || parsedDate.toISOString().slice(0, 10) !== memoryDate) {
+      setError("Informe a data da lembrança no formato AAAA-MM-DD antes de selecionar o arquivo.");
+      return;
+    }
 
     try {
       setError("");
@@ -538,6 +548,8 @@ export function ChapterDetail({
       setUploading(true);
 
       const formData = new FormData();
+      formData.append("memoryDate", memoryDate);
+      formData.append("caption", memoryCaption.trim());
 
       if (Platform.OS === "web") {
         // No navegador, envie o File original retornado pelo DocumentPicker.
@@ -588,6 +600,7 @@ export function ChapterDetail({
       }
 
       await onRefresh();
+      setMemoryCaption("");
 
       if (Platform.OS === "web") {
         window.alert("Arquivo enviado com sucesso!");
@@ -635,22 +648,20 @@ export function ChapterDetail({
   return (
     <Screen>
       <TopBar
-        title="Memória"
+        title="Álbum de memórias"
         onBack={onBack}
         action={
-          <Pressable onPress={onEdit}>
-            <Icon name="edit-3" size={19} color={COLORS.teal} />
-          </Pressable>
+          canManage ? (
+            <Pressable onPress={onEdit} accessibilityRole="button" accessibilityLabel="Editar álbum">
+              <Icon name="edit-3" size={19} color={COLORS.teal} />
+            </Pressable>
+          ) : undefined
         }
       />
 
       <View style={styles.detailPage}>
         <Text style={styles.chapterDate}>
-          {formatDate(chapter.eventDate)}{" "}
-          {"·"}{" "}
-          {chapter.visibility === "private"
-            ? "privado"
-            : "compartilhado"}
+          <Icon name="lock" size={12} color={COLORS.terracotta} /> Álbum privado
         </Text>
 
         <Text style={styles.detailTitle}>{chapter.title}</Text>
@@ -660,42 +671,52 @@ export function ChapterDetail({
             "Uma história que ainda pode ganhar mais detalhes."}
         </Text>
 
-        <View style={styles.detailActions}>
-          <Button
-            variant="outline"
-            small
-            onPress={onEdit}
-            icon="edit-3"
-          >
-            Editar
-          </Button>
-
-          <Button
-            variant="danger"
-            small
-            onPress={confirmDelete}
-            icon="trash-2"
-          >
-            Excluir
-          </Button>
-        </View>
-
-        <View style={styles.detailSectionHeader}>
-          <View>
-            <Text style={styles.eyebrow}>REGISTROS</Text>
-            <Text style={styles.sectionTitleSmall}>
-              Fotos, vídeos e áudios
-            </Text>
+        {canManage && (
+          <View style={styles.detailActions}>
+            <Button variant="outline" small onPress={onEdit} icon="edit-3">
+              Editar álbum
+            </Button>
+            <Button variant="danger" small onPress={confirmDelete} icon="trash-2">
+              Excluir álbum
+            </Button>
           </View>
+        )}
 
-          <Button
-            small
-            onPress={upload}
-            loading={uploading}
-            icon="upload-cloud"
-          >
-            Adicionar
+        <View style={[styles.detailSectionHeader, { marginTop: 26 }]}>
+          <View>
+            <Text style={styles.eyebrow}>MINHAS LEMBRANÇAS</Text>
+            <Text style={styles.sectionTitleSmall}>Fotos, vídeos e áudios</Text>
+          </View>
+        </View>
+        <View style={[styles.card, { marginBottom: 22 }]}>
+          <Text style={[styles.memberName, { fontSize: 14, marginBottom: 12 }]}>
+            Adicionar uma lembrança
+          </Text>
+          <Text style={styles.fieldLabel}>DATA DA LEMBRANÇA (AAAA-MM-DD)</Text>
+          <TextInput
+            value={memoryDate}
+            onChangeText={setMemoryDate}
+            placeholder="Ex.: 2024-07-15"
+            placeholderTextColor={COLORS.muted}
+            style={[styles.input, { marginBottom: 14 }]}
+            accessibilityLabel="Data em que a lembrança aconteceu"
+          />
+          <Text style={styles.fieldLabel}>DESCRIÇÃO DA MÍDIA (OPCIONAL)</Text>
+          <TextInput
+            value={memoryCaption}
+            onChangeText={setMemoryCaption}
+            placeholder="Ex.: Visita ao Coliseu"
+            placeholderTextColor={COLORS.muted}
+            style={[styles.input, { marginBottom: 13 }]}
+            accessibilityLabel="Descrição da mídia"
+            maxLength={255}
+          />
+          <Button onPress={upload} loading={uploading} icon="upload-cloud">
+            Selecionar foto, vídeo ou áudio
           </Button>
+          <Text style={[styles.mutedSmall, { marginTop: 12, lineHeight: 17 }]}>
+            As mídias são organizadas pela data escolhida, não pelo dia do envio.
+          </Text>
         </View>
 
         {chapter.media?.length ? (
@@ -725,8 +746,11 @@ export function ChapterDetail({
                   </View>
                 )}
 
-                <Text style={styles.mediaTitle} numberOfLines={1}>
+                <Text style={styles.mediaTitle} numberOfLines={2}>
                   {media.title || "Arquivo"}
+                </Text>
+                <Text style={[styles.mutedSmall, { marginTop: 4 }]}>
+                  {media.memoryDate ? formatDate(media.memoryDate) : "Data da lembrança não informada"}
                 </Text>
               </View>
             ))}
@@ -736,7 +760,7 @@ export function ChapterDetail({
             <Icon name="upload-cloud" size={25} color="#8daf9f" />
 
             <Text style={styles.mutedText}>
-              Este capítulo ainda não tem registros.
+              Este álbum ainda não tem registros.
             </Text>
 
             <Button
@@ -745,7 +769,7 @@ export function ChapterDetail({
               loading={uploading}
               icon="arrow-right"
             >
-              Adicionar o primeiro
+              Adicionar o primeiro arquivo
             </Button>
           </View>
         )}
@@ -763,7 +787,7 @@ export function ChapterDetail({
               size={12}
               color={COLORS.terracotta}
             />
-            <Text style={styles.eyebrow}>CONVERSA DA FAMÍLIA</Text>
+            <Text style={styles.eyebrow}>COMENTÁRIOS DO ÁLBUM</Text>
           </View>
 
           <Text style={styles.sectionTitleSmall}>
@@ -780,7 +804,7 @@ export function ChapterDetail({
 
                 <View style={{ flex: 1 }}>
                   <Text style={styles.commentAuthor}>
-                    {item.user?.name || "Membro da família"}
+                    {item.user?.name || "Participante"}
                   </Text>
 
                   <Text style={styles.commentDate}>
