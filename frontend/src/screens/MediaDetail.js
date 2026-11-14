@@ -32,6 +32,8 @@ export function MediaDetail({ mediaId, token, currentUserId, onBack, onRefresh, 
   const [error, setError] = useState("");
   const [editing, setEditing] = useState(false);
   const [caption, setCaption] = useState("");
+  const [place, setPlace] = useState("");
+  const [story, setStory] = useState("");
   const [memoryDate, setMemoryDate] = useState("");
   const [comment, setComment] = useState("");
   const [editingCommentId, setEditingCommentId] = useState(null);
@@ -41,6 +43,8 @@ export function MediaDetail({ mediaId, token, currentUserId, onBack, onRefresh, 
     const result = await api(`/api/media/${mediaId}`, token);
     setMedia(result.media);
     setCaption(result.media.title || "");
+    setPlace(result.media.place || "");
+    setStory(result.media.story || "");
     setMemoryDate(result.media.memoryDate || "");
     return result.media;
   };
@@ -53,6 +57,8 @@ export function MediaDetail({ mediaId, token, currentUserId, onBack, onRefresh, 
         if (active) {
           setMedia(loaded);
           setCaption(loaded.title || "");
+          setPlace(loaded.place || "");
+          setStory(loaded.story || "");
           setMemoryDate(loaded.memoryDate || "");
           setError("");
         }
@@ -68,7 +74,7 @@ export function MediaDetail({ mediaId, token, currentUserId, onBack, onRefresh, 
       setError("");
       await api(`/api/media/${mediaId}`, token, {
         method: "PATCH",
-        body: JSON.stringify({ caption: caption.trim(), memoryDate }),
+        body: JSON.stringify({ title: caption.trim(), memoryDate, place: place.trim(), story: story.trim() }),
       });
       await onRefresh?.();
       await load();
@@ -167,7 +173,7 @@ export function MediaDetail({ mediaId, token, currentUserId, onBack, onRefresh, 
         <Text style={S.secondaryLabel}>Voltar ao álbum</Text>
       </Pressable>
 
-      <View style={{ minHeight: 215, backgroundColor: "#191b22", borderRadius: 14, overflow: "hidden", justifyContent: "center", alignItems: "center" }}>
+      <View style={{ minHeight: 215, backgroundColor: "#e7e6eb", borderRadius: 14, overflow: "hidden", justifyContent: "center", alignItems: "center" }}>
         {media.type === "image" ? (
           <Image
             source={{ uri: assetUrl(media.url) }}
@@ -197,7 +203,18 @@ export function MediaDetail({ mediaId, token, currentUserId, onBack, onRefresh, 
           <Icon name="calendar" size={13} color="#6d628f" />  {niceDate(media.memoryDate)}
         </Text>
         <Text style={[S.heading, { fontSize: 21 }]}>{media.title || "Lembrança"}</Text>
-        <Text style={[S.memoryMeta, { fontSize: 12, marginTop: 9 }]}>
+        {!!media.place && (
+          <Text style={[S.memoryMeta, { fontSize: 13, marginTop: 9 }]}>
+            <Icon name="map-pin" size={13} color="#6d628f" />  {media.place}
+          </Text>
+        )}
+        {!!media.story && (
+          <View style={[S.empty, { alignItems: "stretch", marginTop: 18, paddingVertical: 18 }]}>
+            <Text style={[S.memoryName, { fontSize: 13 }]}>História da lembrança</Text>
+            <Text style={[S.emptyBody, { textAlign: "left", marginTop: 8 }]}>{media.story}</Text>
+          </View>
+        )}
+        <Text style={[S.memoryMeta, { fontSize: 12, marginTop: 12 }]}>
           Adicionada por {media.authorName || "Participante"}
         </Text>
       </View>
@@ -227,13 +244,13 @@ export function MediaDetail({ mediaId, token, currentUserId, onBack, onRefresh, 
       {editing && (
         <View style={[S.empty, { alignItems: "stretch", gap: 12, marginBottom: 22 }]}>
           <Text style={[S.heading, { fontSize: 17 }]}>Editar lembrança</Text>
-          <Text style={S.label}>Descrição</Text>
+          <Text style={S.label}>Nome da memória</Text>
           <TextInput
             value={caption}
             onChangeText={setCaption}
             style={S.input}
-            maxLength={255}
-            accessibilityLabel="Descrição da lembrança"
+            maxLength={150}
+            accessibilityLabel="Nome da memória"
           />
           <Text style={S.label}>Data da lembrança (AAAA-MM-DD)</Text>
           <TextInput
@@ -243,6 +260,14 @@ export function MediaDetail({ mediaId, token, currentUserId, onBack, onRefresh, 
             style={S.input}
             accessibilityLabel="Data da lembrança"
           />
+          <Text style={S.label}>Local (opcional)</Text>
+          <TextInput value={place} onChangeText={setPlace}
+            maxLength={160} style={S.input}
+            accessibilityLabel="Local da lembrança" />
+          <Text style={S.label}>História (opcional)</Text>
+          <TextInput value={story} onChangeText={setStory} multiline
+            style={[S.input, { minHeight: 95, textAlignVertical: "top", paddingVertical: 12 }]}
+            accessibilityLabel="História da lembrança" />
           <Pressable
             onPress={save}
             disabled={busy}
@@ -252,7 +277,13 @@ export function MediaDetail({ mediaId, token, currentUserId, onBack, onRefresh, 
             {busy ? <ActivityIndicator color="#fff" /> : <Text style={S.actionLabel}>Salvar alterações</Text>}
           </Pressable>
           <Pressable
-            onPress={() => { setEditing(false); setCaption(media.title || ""); setMemoryDate(media.memoryDate || ""); }}
+            onPress={() => {
+              setEditing(false);
+              setCaption(media.title || "");
+              setMemoryDate(media.memoryDate || "");
+              setPlace(media.place || "");
+              setStory(media.story || "");
+            }}
             disabled={busy}
             style={S.secondaryButton}
             accessibilityRole="button"
