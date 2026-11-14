@@ -1,111 +1,87 @@
-
 import React, { useEffect, useState } from "react";
 import AsyncStorage from "@react-native-async-storage/async-storage";
+import { Alert, Platform } from "react-native";
 
 import { api } from "./src/services/api";
 import { LoadingScreen } from "./src/components/ui";
 import { AppLayout } from "./src/components/AppLayout";
-import { PrototypeHome, PrototypeGroups, PrototypeCreateFamily } from "./src/screens/PrototypeScreens";
-import { Alert, Platform } from "react-native";
-
 import { Welcome, Auth } from "./src/screens/Onboarding";
-
-import { ChapterDetail } from "./src/screens/Memories";
-import { AlbumList, AlbumForm } from "./src/screens/AlbumScreens";
-import { MemoryTimeline } from "./src/screens/MemoryTimeline";
+import { HomeDashboard } from "./src/screens/HomeDashboard";
+import { PrototypeGroups, PrototypeCreateFamily } from "./src/screens/PrototypeScreens";
+import { GroupDashboard, AlbumSequence } from "./src/screens/GroupAlbumScreens";
+import { AlbumForm } from "./src/screens/AlbumScreens";
+import { CreateMemory } from "./src/screens/CreateMemory";
 import { MediaDetail } from "./src/screens/MediaDetail";
-
-import {
-  Members,
-  Settings,
-} from "./src/screens/Account";
-
+import { Members, Settings } from "./src/screens/Account";
 import { Profile } from "./src/screens/Profile";
+
+const showMessage = (title, message) => {
+  if (Platform.OS === "web") window.alert(title + ": " + message);
+  else Alert.alert(title, message);
+};
 
 export default function App() {
   const [booting, setBooting] = useState(true);
   const [token, setToken] = useState(null);
   const [user, setUser] = useState(null);
-  const [family, setFamily] = useState(null);
-  const [families, setFamilies] = useState([]);
-  const [members, setMembers] = useState([]);
-  const [chapters, setChapters] = useState([]);
   const [screen, setScreen] = useState("welcome");
-  const [selected, setSelected] = useState(null);
-  const [selectedMediaId, setSelectedMediaId] = useState(null);
   const [authMode, setAuthMode] = useState("login");
-  const [createFamilyReturn, setCreateFamilyReturn] = useState("groups");
+  const [groups, setGroups] = useState([]);
+  const [group, setGroup] = useState(null);
+  const [members, setMembers] = useState([]);
+  const [albums, setAlbums] = useState([]);
+  const [selectedAlbum, setSelectedAlbum] = useState(null);
+  const [selectedMediaId, setSelectedMediaId] = useState(null);
+  const [recentMemories, setRecentMemories] = useState([]);
   const [invitations, setInvitations] = useState([]);
   const [invitationBusyId, setInvitationBusyId] = useState(null);
   const [invitationsError, setInvitationsError] = useState("");
-  const [returnFromSettings, setReturnFromSettings] = useState("groups");
-  const [returnFromMembers, setReturnFromMembers] = useState("groups");
+  const [createGroupReturn, setCreateGroupReturn] = useState("groups");
+  const [membersReturn, setMembersReturn] = useState("group");
+  const [settingsReturn, setSettingsReturn] = useState("group");
+  const [refreshVersion, setRefreshVersion] = useState(0);
 
-  const refreshFamily = async (
-    familyId = family?.id,
-    activeToken = token
-  ) => {
-    if (!familyId || !activeToken) return;
-
-    const result = await api(
-      `/api/families/${familyId}`,
-      activeToken
-    );
-
-    setFamily(result.family);
+  const refreshGroup = async (id = group?.id, authToken = token) => {
+    if (!id || !authToken) return null;
+    const result = await api(`/api/families/${id}`, authToken);
+    setGroup(result.family);
+    setAlbums(result.chapters || []);
     setMembers(result.members || []);
-    setChapters(result.chapters || []);
-
-    setSelected((current) =>
-      current
-        ? (result.chapters || []).find(
-          (item) => item.id === current.id
-        ) || current
-        : current
-    );
-
+    setSelectedAlbum((current) => {
+      if (!current) return current;
+      return (result.chapters || []).find((a) => String(a.id) === String(current.id)) || current;
+    });
     return result;
   };
 
-  const loadSession = async (savedToken) => {
+  const refreshGroupList = async (authToken = token) => {
+    if (!authToken) return [];
+    const result = await api("/api/auth/me", authToken);
+    setGroups(result.families || []);
+    return result.families || [];
+  };
+
+  const loadSession = async (savedToken, authenticationData) => {
     try {
-      const me = await api("/api/auth/me", savedToken);
-
+      const data = authenticationData || await api("/api/auth/me", savedToken);
       setToken(savedToken);
-      setUser(me.user);
-      setFamilies(me.families || []);
-
-      if (me.families?.[0]) {
-        await refreshFamily(
-          me.families[0].id,
-          savedToken
-        );
-
-        setScreen("home");
+      setUser(data.user);
+      setGroups(data.families || []);
+      // Início é sempre a dashboard da conta; um grupo nunca é obrigatório.
+      setScreen("home");
+      if (data.families?.[0]) {
+        await refreshGroup(data.families[0].id, savedToken);
       } else {
-        // Uma conta pode existir sem participar de nenhum grupo.
-        setFamily(null);
+        setGroup(null);
         setMembers([]);
-        setChapters([]);
-        setScreen("home");
+        setAlbums([]);
       }
-    } catch (error) {
-      try {
-        await AsyncStorage.removeItem("mv_token");
-      } catch (storageError) {
-        console.error(
-          "Erro ao remover sessão inválida:",
-          storageError
-        );
-      }
-
+    } catch (e) {
+      await AsyncStorage.removeItem("mv_token").catch(() => {});
       setToken(null);
       setUser(null);
-      setFamily(null);
-      setFamilies([]);
-      setMembers([]);
-      setChapters([]);
-      setSelected(null);
+      setGroups([]);
+      setGroup(null);
       setScreen("welcome");
     } finally {
       setBooting(false);
@@ -113,464 +89,332 @@ export default function App() {
   };
 
   useEffect(() => {
-    let active = true;
-
-    const initialize = async () => {
-      try {
-        const savedToken = await AsyncStorage.getItem("mv_token");
-
-        if (!active) return;
-
-        if (savedToken) {
-          await loadSession(savedToken);
-        } else {
-          setBooting(false);
-        }
-      } catch (error) {
-        console.error(
-          "Erro ao carregar sessão:",
-          error
-        );
-
-        if (active) {
-          setToken(null);
-          setUser(null);
-          setScreen("welcome");
-          setBooting(false);
-        }
-      }
-    };
-
-    initialize();
-
-    return () => {
-      active = false;
-    };
+    let live = true;
+    AsyncStorage.getItem("mv_token")
+      .then((saved) => {
+        if (!live) return;
+        if (saved) return loadSession(saved);
+        setBooting(false);
+      })
+      .catch(() => { if (live) setBooting(false); });
+    return () => { live = false; };
   }, []);
 
-  // Busca convites pendentes sem conceder acesso antes da aceitação.
-  const loadInvitations = async (activeToken = token) => {
-    if (!activeToken) return;
+  // A dashboard usa memórias dos grupos autorizados, não álbuns do grupo ativo.
+  useEffect(() => {
+    if (!token || !["home", "groups", "search"].includes(screen)) return;
+    let live = true;
+    api("/api/invitations", token)
+      .then((result) => {
+        if (live) {
+          setInvitations(result.invitations || []);
+          setInvitationsError("");
+        }
+      })
+      .catch((e) => { if (live) setInvitationsError(e.message || "Não foi possível consultar convites."); });
+
+    Promise.allSettled(groups.map((g) => api(`/api/families/${g.id}`, token)))
+      .then((results) => {
+        if (!live) return;
+        const memories = [];
+        for (const item of results) {
+          if (item.status !== "fulfilled") continue;
+          const payload = item.value;
+          for (const album of payload.chapters || []) {
+            for (const media of album.media || []) {
+              memories.push({ group: payload.family, album, media });
+            }
+          }
+        }
+        // "Últimas" = adicionadas recentemente, sem inventar histórico de visitas.
+        memories.sort((a, b) =>
+          String(b.media.createdAt || "").localeCompare(String(a.media.createdAt || ""))
+        );
+        setRecentMemories(memories.slice(0, 12));
+      });
+    return () => { live = false; };
+  }, [token, screen, groups, refreshVersion]);
+
+  const login = async (result) => {
     try {
-      const result = await api("/api/invitations", activeToken);
-      setInvitations(result.invitations || []);
-      setInvitationsError("");
-    } catch (error) {
-      setInvitationsError(error?.message || "Não foi possível consultar os convites.");
+      await AsyncStorage.setItem("mv_token", result.token);
+      await loadSession(result.token, result);
+    } catch (e) {
+      showMessage("Erro ao entrar", e.message || "Não foi possível iniciar sessão.");
     }
   };
 
-  useEffect(() => {
-    if (!token || (screen !== "home" && screen !== "groups")) return;
-    loadInvitations(token);
-  }, [screen, token]);
+  const logout = async () => {
+    setToken(null);
+    setUser(null);
+    setGroups([]);
+    setGroup(null);
+    setMembers([]);
+    setAlbums([]);
+    setSelectedAlbum(null);
+    setSelectedMediaId(null);
+    setRecentMemories([]);
+    setInvitations([]);
+    setScreen("welcome");
+    setAuthMode("login");
+    await AsyncStorage.removeItem("mv_token").catch(() => {});
+  };
 
-  const answerInvitation = async (invitation, response) => {
+  const openCreateGroup = (returnTo) => {
+    setCreateGroupReturn(returnTo);
+    setScreen("createGroup");
+  };
+
+  const createGroup = async (created) => {
+    await refreshGroup(created.id);
+    setGroups((current) => [created, ...current.filter((g) => String(g.id) !== String(created.id))]);
+    setRefreshVersion((v) => v + 1);
+    setScreen("group");
+  };
+
+  const openGroup = async (target) => {
+    try {
+      await refreshGroup(target.id);
+      setSelectedAlbum(null);
+      setScreen("group");
+    } catch (e) {
+      showMessage("Erro ao abrir grupo", e.message || "Não foi possível carregar o grupo.");
+    }
+  };
+
+  const openAlbum = (album) => {
+    setSelectedAlbum(album);
+    setScreen("album");
+  };
+
+  const openMedia = (media) => {
+    setSelectedMediaId(media.id);
+    setScreen("media");
+  };
+
+  const openMediaFromHome = async ({ group: target, album, media }) => {
+    try {
+      const payload = await refreshGroup(target.id);
+      const currentAlbum = (payload.chapters || []).find((a) => String(a.id) === String(album.id));
+      if (!currentAlbum) throw new Error("Álbum não encontrado.");
+      setSelectedAlbum(currentAlbum);
+      setSelectedMediaId(media.id);
+      setScreen("media");
+    } catch (e) {
+      showMessage("Erro ao abrir memória", e.message || "Não foi possível abrir a lembrança.");
+    }
+  };
+
+  const saveAlbum = async () => {
+    await refreshGroup();
+    setRefreshVersion((v) => v + 1);
+    setScreen("group");
+  };
+
+  const saveMemory = async () => {
+    await refreshGroup();
+    setRefreshVersion((v) => v + 1);
+    setScreen("album");
+  };
+
+  const openMembers = (returnTo = "group") => {
+    setMembersReturn(returnTo);
+    setScreen("members");
+  };
+
+  const openSettings = (returnTo = "group") => {
+    setSettingsReturn(returnTo);
+    setScreen("settings");
+  };
+
+  const updateGroup = (updated) => {
+    if (!updated) return;
+    setGroup(updated);
+    setGroups((current) => current.map((g) =>
+      String(g.id) === String(updated.id) ? updated : g
+    ));
+    setRefreshVersion((v) => v + 1);
+  };
+
+  const answerInvitation = async (invitation, action) => {
     if (!invitation?.id || invitationBusyId) return;
     try {
       setInvitationBusyId(invitation.id);
       setInvitationsError("");
-      await api(`/api/invitations/${invitation.id}/${response}`, token, { method: "POST" });
-      const me = await api("/api/auth/me", token);
-      setFamilies(me.families || []);
-      await loadInvitations(token);
-      if (response === "accept") {
-        const addedGroup = (me.families || []).find((item) =>
-          String(item.id) === String(invitation.groupId)
-        );
-        if (addedGroup) {
-          await refreshFamily(addedGroup.id, token);
-          setScreen("home");
-        }
+      await api(`/api/invitations/${invitation.id}/${action}`, token, { method: "POST" });
+      const list = await refreshGroupList();
+      setInvitations((current) => current.filter((i) => String(i.id) !== String(invitation.id)));
+      if (action === "accept") {
+        const joined = list.find((g) => String(g.id) === String(invitation.groupId));
+        if (joined) await openGroup(joined);
       }
-    } catch (error) {
-      setInvitationsError(error?.message || "Não foi possível responder ao convite.");
+      setRefreshVersion((v) => v + 1);
+    } catch (e) {
+      setInvitationsError(e.message || "Não foi possível responder ao convite.");
     } finally {
       setInvitationBusyId(null);
     }
   };
 
-  const openCreateFamily = (returnTo = "groups") => {
-    setCreateFamilyReturn(returnTo);
-    setScreen("createFamily");
-  };
-
-  // Atualiza a lista de grupos ao abrir a tela correspondente.
-  useEffect(() => {
-    if (screen !== "groups" || !token) return undefined;
-    let active = true;
-    api("/api/auth/me", token)
-      .then((result) => {
-        if (active) setFamilies(result.families || []);
-      })
-      .catch((error) => {
-        console.error("Não foi possível atualizar os grupos:", error.message);
-      });
-    return () => { active = false; };
-  }, [screen, token]);
-
-  // Logout local: não depende da resposta do backend.
-  const logout = async () => {
-    // Limpa a sessão imediatamente na interface
-    setToken(null);
-    setUser(null);
-    setFamily(null);
-    setFamilies([]);
-    setInvitations([]);
-    setMembers([]);
-    setChapters([]);
-    setSelected(null);
-    setAuthMode("login");
-    setScreen("welcome");
-
-    // Remove a sessão salva no dispositivo
-    try {
-      await AsyncStorage.removeItem("mv_token");
-    } catch (error) {
-      console.error("Erro ao remover token:", error);
-    }
-  };
-
-  const authSuccess = async (result) => {
-    try {
-      await AsyncStorage.setItem(
-        "mv_token",
-        result.token
-      );
-
-      setToken(result.token);
-      setUser(result.user);
-      setFamilies(result.families || []);
-
-      if (result.families?.[0]) {
-        await refreshFamily(
-          result.families[0].id,
-          result.token
-        );
-
-        setScreen("home");
-      } else {
-        setFamily(null);
-        setMembers([]);
-        setChapters([]);
-        setScreen("home");
-      }
-    } catch (error) {
-      Alert.alert(
-        "Erro ao entrar",
-        error?.message ||
-        "Não foi possível iniciar sua sessão."
-      );
-    }
-  };
-
-  const familyCreated = async (newFamily) => {
-    await refreshFamily(newFamily.id, token);
-    setFamilies((current) => [
-      newFamily,
-      ...current.filter((item) => String(item.id) !== String(newFamily.id)),
-    ]);
-    setScreen("home");
-  };
-
-  const openGroupSettings = (returnTo = "groups") => {
-    setReturnFromSettings(returnTo);
-    setScreen("settings");
-  };
-
-  const openGroupMembers = (returnTo = "groups") => {
-    setReturnFromMembers(returnTo);
-    setScreen("members");
-  };
-
-  const selectFamily = async (selectedFamily) => {
-    try {
-      await refreshFamily(selectedFamily.id, token);
-      setScreen("home");
-    } catch (error) {
-      Alert.alert("Não foi possível abrir o grupo", error?.message || "Tente novamente.");
-    }
-  };
-
-  const currentUserIsAdmin = members.some(
-    (member) => String(member.userId) === String(user?.id) && member.permission === "admin"
-  );
-
-  const openChapter = (chapter) => {
-    setSelected(chapter);
-    setScreen("chapter");
-  };
-
-  const openMedia = (media, album) => {
-    if (album) setSelected(album);
-    setSelectedMediaId(media.id);
-    setScreen("media");
-  };
-
-  const deleteChapter = async () => {
-    if (!selected?.id) return;
-
-    try {
-      await api(
-        `/api/chapters/${selected.id}`,
-        token,
-        { method: "DELETE" }
-      );
-
-      await refreshFamily();
-
-      setSelected(null);
-      setScreen("timeline");
-    } catch (error) {
-      Alert.alert(
-        "Não foi possível excluir",
-        error?.message || "Ocorreu um erro ao excluir a memória."
-      );
-    }
-  };
-
-  if (booting) {
-    return <LoadingScreen />;
-  }
+  if (booting) return <LoadingScreen />;
 
   if (!token || !user) {
     if (screen === "auth") {
-      return (
-        <Auth
-          mode={authMode}
-          onBack={(mode) =>
-            mode
-              ? setAuthMode(mode)
-              : setScreen("welcome")
-          }
-          onSuccess={authSuccess}
-        />
-      );
+      return <Auth
+        mode={authMode}
+        onBack={(mode) => mode ? setAuthMode(mode) : setScreen("welcome")}
+        onSuccess={login}
+      />;
     }
-
-    return (
-      <Welcome
-        onLogin={() => {
-          setAuthMode("login");
-          setScreen("auth");
-        }}
-        onRegister={() => {
-          setAuthMode("register");
-          setScreen("auth");
-        }}
-      />
-    );
+    return <Welcome
+      onLogin={() => { setAuthMode("login"); setScreen("auth"); }}
+      onRegister={() => { setAuthMode("register"); setScreen("auth"); }}
+    />;
   }
 
-  if (screen === "createFamily") {
-    return (
-      <PrototypeCreateFamily
-        token={token}
-        onCreated={familyCreated}
-        onCancel={() => setScreen(createFamilyReturn)}
-      />
+  if (screen === "createGroup") {
+    return <PrototypeCreateFamily
+      token={token}
+      onCreated={createGroup}
+      onCancel={() => setScreen(createGroupReturn)}
+    />;
+  }
+
+  if (screen === "group" && group) {
+    const isAdmin = members.some((m) =>
+      String(m.userId) === String(user.id) && m.permission === "admin"
     );
+    return <GroupDashboard
+      family={group}
+      albums={albums}
+      canManage={isAdmin}
+      onBack={() => setScreen("groups")}
+      onOpenAlbum={openAlbum}
+      onCreateAlbum={() => setScreen("newAlbum")}
+      onEditAlbum={(a) => { setSelectedAlbum(a); setScreen("editAlbum"); }}
+      onMembers={() => openMembers("group")}
+      onSettings={() => openSettings("group")}
+    />;
+  }
+
+  if (screen === "newAlbum" || screen === "editAlbum") {
+    return <AlbumForm
+      family={group}
+      token={token}
+      existing={screen === "editAlbum" ? selectedAlbum : null}
+      onSaved={saveAlbum}
+      onBack={() => setScreen("group")}
+    />;
+  }
+
+  if (screen === "album" && selectedAlbum) {
+    return <AlbumSequence
+      album={selectedAlbum}
+      onBack={() => setScreen("group")}
+      onAddMemory={() => setScreen("createMemory")}
+      onOpenMemory={openMedia}
+    />;
+  }
+
+  if (screen === "createMemory" && selectedAlbum) {
+    return <CreateMemory
+      album={selectedAlbum}
+      token={token}
+      onBack={() => setScreen("album")}
+      onSaved={saveMemory}
+    />;
   }
 
   if (screen === "media" && selectedMediaId) {
-    return (
-      <MediaDetail
-        mediaId={selectedMediaId}
-        token={token}
-        currentUserId={user.id}
-        onBack={() => setScreen("chapter")}
-        onRefresh={() => refreshFamily()}
-        onDeleted={async () => {
-          await refreshFamily();
-          setSelectedMediaId(null);
-          setScreen("chapter");
-        }}
-      />
-    );
+    return <MediaDetail
+      mediaId={selectedMediaId}
+      token={token}
+      currentUserId={user.id}
+      onBack={() => setScreen("album")}
+      onRefresh={async () => {
+        await refreshGroup();
+        setRefreshVersion((v) => v + 1);
+      }}
+      onDeleted={async () => {
+        await refreshGroup();
+        setSelectedMediaId(null);
+        setScreen("album");
+        setRefreshVersion((v) => v + 1);
+      }}
+    />;
   }
 
-  if (screen === "chapter") {
-    return (
-      <ChapterDetail
-        chapter={selected}
-        token={token}
-        onBack={() => setScreen("timeline")}
-        onRefresh={() => refreshFamily()}
-        onEdit={() => setScreen("editChapter")}
-        onDelete={deleteChapter}
-        canManage={currentUserIsAdmin}
-        onOpenMedia={(media) => openMedia(media, selected)}
-      />
+  if (screen === "members" && group) {
+    const isAdmin = members.some((m) =>
+      String(m.userId) === String(user.id) && m.permission === "admin"
     );
+    return <Members
+      family={group}
+      token={token}
+      members={members}
+      currentUserId={user.id}
+      isAdmin={isAdmin}
+      onBack={() => setScreen(membersReturn)}
+      onRefresh={() => refreshGroup()}
+    />;
   }
 
-  if (
-    screen === "newChapter" ||
-    screen === "editChapter"
-  ) {
-    return (
-      <AlbumForm
-        family={family}
-        token={token}
-        existing={
-          screen === "editChapter"
-            ? selected
-            : undefined
-        }
-        onBack={() =>
-          setScreen(
-            screen === "editChapter"
-              ? "chapter"
-              : "home"
-          )
-        }
-        onSaved={async () => {
-          await refreshFamily();
-          setScreen("timeline");
-        }}
-      />
+  if (screen === "settings" && group) {
+    const isAdmin = members.some((m) =>
+      String(m.userId) === String(user.id) && m.permission === "admin"
     );
+    return <Settings
+      family={group}
+      token={token}
+      isAdmin={isAdmin}
+      onFamilyUpdated={updateGroup}
+      onBack={() => setScreen(settingsReturn)}
+      onManageMembers={() => openMembers("settings")}
+    />;
   }
 
   let content;
-
-  switch (screen) {
-    case "home":
-    case "search":
-      content = (
-        <PrototypeHome
-          family={family}
-          chapters={chapters}
-          onOpenChapter={openChapter}
-          onOpenMedia={openMedia}
-          onShowTimeline={() => setScreen("timeline")}
-          onShowMemories={() => setScreen("memories")}
-          onCreateAlbum={() => setScreen("newChapter")}
-          canManage={currentUserIsAdmin}
-          onCreateGroup={() => openCreateFamily("home")}
-          searchMode={screen === "search"}
-          onShowGroups={() => setScreen("groups")}
-          invitationCount={invitations.length}
-        />
-      );
-      break;
-
-    case "groups":
-      content = (
-        <PrototypeGroups
-          families={families}
-          activeFamilyId={family?.id}
-          onSelectFamily={selectFamily}
-          onEditFamily={() => openGroupSettings("groups")}
-          onAddFamily={() => openCreateFamily("groups")}
-          onManageMembers={() => openGroupMembers("groups")}
-          isCurrentAdmin={currentUserIsAdmin}
-          invitations={invitations}
-          invitationBusyId={invitationBusyId}
-          invitationsError={invitationsError}
-          onRespondInvitation={answerInvitation}
-        />
-      );
-      break;
-
-    case "timeline":
-      if (!family) {
-        content = null;
-        break;
-      }
-      content = (
-        <AlbumList
-          chapters={chapters}
-          onOpen={openChapter}
-          onBack={() => setScreen("home")}
-          onAdd={() => setScreen("newChapter")}
-          canManage={currentUserIsAdmin}
-        />
-      );
-      break;
-
-    case "memories":
-      content = (
-        <MemoryTimeline
-          chapters={chapters}
-          onOpen={openChapter}
-          onOpenMedia={openMedia}
-          onBack={() => setScreen("home")}
-        />
-      );
-      break;
-
-    case "members":
-      content = (
-        <Members
-          family={family}
-          token={token}
-          members={members}
-          onRefresh={() => refreshFamily()}
-          onBack={() => setScreen(returnFromMembers)}
-          isAdmin={currentUserIsAdmin}
-          currentUserId={user.id}
-        />
-      );
-      break;
-
-    case "profile":
-      content = (
-        <Profile
-          user={user}
-          family={family}
-          members={members}
-          chapters={chapters}
-          token={token}
-          onLogout={logout}
-          onUserUpdated={setUser}
-        />
-      );
-      break;
-
-    case "settings":
-      content = (
-        <Settings
-          family={family}
-          token={token}
-          onFamilyUpdated={(updated) => {
-            setFamily(updated);
-            setFamilies((previous) => previous.map((item) =>
-              String(item.id) === String(updated.id) ? updated : item
-            ));
-          }}
-          onBack={() => setScreen(returnFromSettings)}
-          onManageMembers={() => openGroupMembers("settings")}
-          isAdmin={currentUserIsAdmin}
-        />
-      );
-      break;
-
-    default:
-      content = (
-        <PrototypeHome
-          family={family}
-          chapters={chapters}
-          onOpenChapter={openChapter}
-          onOpenMedia={openMedia}
-          onShowTimeline={() => setScreen("timeline")}
-          onShowMemories={() => setScreen("memories")}
-          onCreateAlbum={() => setScreen("newChapter")}
-          canManage={currentUserIsAdmin}
-          onCreateGroup={() => openCreateFamily("home")}
-        />
-      );
+  if (screen === "groups") {
+    content = <PrototypeGroups
+      families={groups}
+      activeFamilyId={group?.id}
+      invitations={invitations}
+      invitationBusyId={invitationBusyId}
+      invitationsError={invitationsError}
+      onRespondInvitation={answerInvitation}
+      onSelectFamily={openGroup}
+      onEditFamily={(g) => openGroup(g).then(() => openSettings("groups"))}
+      onAddFamily={() => openCreateGroup("groups")}
+      isCurrentAdmin={false}
+    />;
+  } else if (screen === "profile") {
+    content = <Profile
+      user={user}
+      token={token}
+      onUserUpdated={setUser}
+      onBack={() => setScreen("home")}
+      onLogout={logout}
+    />;
+  } else {
+    content = <HomeDashboard
+      user={user}
+      families={groups}
+      recentMemories={recentMemories}
+      invitationsCount={invitations.length}
+      onOpenGroup={openGroup}
+      onOpenMedia={openMediaFromHome}
+      onGroups={() => setScreen("groups")}
+      onCreateGroup={() => openCreateGroup("home")}
+      searchMode={screen === "search"}
+    />;
   }
 
   return (
     <AppLayout
-      user={user}
-      family={family}
+      family={null}
       screen={screen}
       setScreen={setScreen}
-      onLogout={logout}
-      onOpenSettings={() => openGroupSettings(screen === "groups" ? "groups" : screen === "profile" ? "profile" : "home")}
-      onAdd={() => setScreen("newChapter")}
+      onOpenSettings={() => setScreen("profile")}
     >
       {content}
     </AppLayout>
