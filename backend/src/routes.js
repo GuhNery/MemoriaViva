@@ -446,6 +446,68 @@ router.patch('/api/families/:id', authenticate, requireFamilyMember, async (req,
   } catch (err) { next(err); }
 });
 
+// Uma capa é uma imagem privada, distinta das lembranças armazenadas no álbum.
+function receiveCover(req, res, next) {
+  upload.single('file')(req, res, (err) => {
+    if (err) {
+      return res.status(err.code === 'LIMIT_FILE_SIZE' ? 413 : 400)
+        .json({ error: { message: err.message || 'Não foi possível enviar a capa.' } });
+    }
+    next();
+  });
+}
+
+async function ensureCoverImage(req, res) {
+  if (!req.file || !/^image\/(jpeg|png|webp|gif)$/.test(req.file.mimetype)) {
+    if (req.file) await fs.promises.unlink(req.file.path).catch(() => {});
+    res.status(400).json({ error: { message: 'Escolha uma foto JPG, PNG, WEBP ou GIF para a capa.' } });
+    return false;
+  }
+  return true;
+}
+
+router.post('/api/families/:id/cover', authenticate, requireFamilyMember, receiveCover, async (req, res, next) => {
+  if (!(await ensureCoverImage(req, res))) return;
+  if (req.familyPermission !== 'admin' && Number(req.familyAdminId) !== Number(req.user.id_usuario)) {
+    await fs.promises.unlink(req.file.path).catch(() => {});
+    return res.status(403).json({ error: { message: 'Somente administradores podem alterar a capa.' } });
+  }
+  try {
+    const prior = await query('SELECT foto_grupo FROM grupo WHERE id_grupo=$1', [req.familyId]);
+    const location = `/uploads/${req.file.filename}`;
+    const updated = await query('UPDATE grupo SET foto_grupo=$1 WHERE id_grupo=$2 RETURNING *',
+      [location, req.familyId]);
+    if (prior.rows[0]?.foto_grupo?.startsWith('/uploads/')) {
+      const old = path.basename(prior.rows[0].foto_grupo);
+      if (old !== req.file.filename) fs.promises.unlink(path.join(uploadsDir, old)).catch(() => {});
+    }
+    res.json({ family: publicFamily(updated.rows[0], req.user.id_usuario) });
+  } catch (err) { await fs.promises.unlink(req.file.path).catch(() => {}); next(err); }
+});
+
+router.post('/api/chapters/:id/cover', authenticate, receiveCover, async (req, res, next) => {
+  if (!(await ensureCoverImage(req, res))) return;
+  try {
+    const album = await assertChapterAccess(Number(req.params.id), req.user.id_usuario);
+    if (!album) {
+      await fs.promises.unlink(req.file.path).catch(() => {});
+      return res.status(404).json({ error: { message: 'Álbum não encontrado.' } });
+    }
+    if (album.family_permission !== 'admin' && Number(album.id_admin) !== Number(req.user.id_usuario)) {
+      await fs.promises.unlink(req.file.path).catch(() => {});
+      return res.status(403).json({ error: { message: 'Somente administradores podem alterar a capa do álbum.' } });
+    }
+    const location = `/uploads/${req.file.filename}`;
+    await query('UPDATE subgrupo SET foto_capa=$1 WHERE id_subgrupo=$2',
+      [location, album.id_subgrupo]);
+    if (album.foto_capa?.startsWith('/uploads/')) {
+      const old = path.basename(album.foto_capa);
+      if (old !== req.file.filename) fs.promises.unlink(path.join(uploadsDir, old)).catch(() => {});
+    }
+    res.json({ chapter: await getChapter(album.id_subgrupo, req.user.id_usuario) });
+  } catch (err) { await fs.promises.unlink(req.file.path).catch(() => {}); next(err); }
+});
+
 // O administrador escolhe o destino das mídias antes de retirar alguém do grupo.
 router.delete('/api/families/:familyId/members/:userId', authenticate, requireFamilyMember, async (req, res, next) => {
   if (req.familyPermission !== 'admin' && Number(req.familyAdminId) !== Number(req.user.id_usuario)) {
