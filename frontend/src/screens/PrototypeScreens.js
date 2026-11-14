@@ -342,7 +342,7 @@ export function PrototypeGroups({
                 </Text>
               </View>
             </Pressable>
-            {selected && isCurrentAdmin ? (
+            {family.isAdmin ? (
               <Pressable
                 onPress={() => onEditFamily(family)}
                 accessibilityRole="button"
