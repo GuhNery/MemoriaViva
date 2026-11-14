@@ -3,6 +3,7 @@ import { ActivityIndicator, Pressable, Text, TextInput, View } from "react-nativ
 import { api, COLORS } from "../services/api";
 import { Screen, Icon } from "../components/ui";
 import S from "../theme/prototypeInternalStyles";
+import { CoverField, uploadCover } from "../components/CoverField";
 
 function GoBack({ onBack, title }) {
   return (
@@ -98,6 +99,8 @@ export function AlbumList({ chapters = [], onOpen, onBack, onAdd, canManage = fa
 export function AlbumForm({ family, token, existing, onSaved, onBack }) {
   const [title, setTitle] = useState(existing?.title || "");
   const [description, setDescription] = useState(existing?.description || "");
+  const [cover, setCover] = useState(null);
+  const [savedAlbum, setSavedAlbum] = useState(null);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState("");
 
@@ -110,15 +113,26 @@ export function AlbumForm({ family, token, existing, onSaved, onBack }) {
     try {
       setLoading(true);
       setError("");
-      const result = await api(
+      const album = savedAlbum || (await api(
         existing ? `/api/chapters/${existing.id}` : `/api/families/${family.id}/chapters`,
         token,
         {
           method: existing ? "PATCH" : "POST",
           body: JSON.stringify({ title: cleaned, description: description.trim() }),
         }
-      );
-      await onSaved(result.chapter);
+      )).chapter;
+      setSavedAlbum(album);
+      let finalAlbum = album;
+      if (cover) {
+        try {
+          const uploaded = await uploadCover({ kind: "album", id: album.id, token, asset: cover });
+          finalAlbum = uploaded.chapter || album;
+        } catch (uploadError) {
+          setError("O álbum foi salvo, mas a capa não pôde ser enviada: " + (uploadError.message || "tente novamente."));
+          return;
+        }
+      }
+      await onSaved(finalAlbum);
     } catch (e) {
       setError(e.message || "Não foi possível salvar o álbum.");
     } finally {
@@ -136,15 +150,13 @@ export function AlbumForm({ family, token, existing, onSaved, onBack }) {
         Escolha um tema para reunir suas lembranças. A data pertence a cada foto,
         vídeo ou áudio, não ao álbum inteiro.
       </Text>
-      <View style={[S.empty, { flexDirection: "row", alignItems: "center", gap: 12, marginBottom: 26 }]}>
-        <Icon name="folder" size={27} color="#655b84" />
-        <View style={{ flex: 1 }}>
-          <Text style={S.memoryName}>Álbum privado</Text>
-          <Text style={[S.emptyBody, { textAlign: "left" }]}>
-            Visível para todos os integrantes do grupo.
-          </Text>
-        </View>
-      </View>
+      <CoverField
+        value={existing?.coverUrl}
+        selected={cover}
+        onPick={setCover}
+        label="Adicionar capa do álbum"
+        busy={loading}
+      />
       <View style={S.field}>
         <Text style={S.label}>Nome do álbum</Text>
         <TextInput
@@ -180,10 +192,20 @@ export function AlbumForm({ family, token, existing, onSaved, onBack }) {
         {loading ? <ActivityIndicator color="#fff" /> : (
           <>
             <Icon name="check" size={18} color="#fff" />
-            <Text style={S.actionLabel}>{existing ? "Salvar alterações" : "Criar álbum"}</Text>
+            <Text style={S.actionLabel}>{savedAlbum ? "Tentar salvar capa" : existing ? "Salvar alterações" : "Criar álbum"}</Text>
           </>
         )}
       </Pressable>
+      {!!savedAlbum && (
+        <Pressable
+          onPress={() => onSaved(savedAlbum)}
+          disabled={loading}
+          accessibilityRole="button"
+          style={[S.secondaryButton, { marginTop: 10 }]}
+        >
+          <Text style={S.secondaryLabel}>Continuar sem capa</Text>
+        </Pressable>
+      )}
       <Pressable
         onPress={onBack}
         disabled={loading}
