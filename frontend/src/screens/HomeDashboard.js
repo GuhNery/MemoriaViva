@@ -13,7 +13,7 @@ function niceDate(date) {
 }
 
 export function HomeDashboard({
-  user, families = [], recentMemories = [], invitationsCount = 0,
+  user, families = [], recentMemories = [], stats = null, invitationsCount = 0,
   onOpenGroup, onOpenMedia, onGroups, onCreateGroup, searchMode = false,
 }) {
   const [term, setTerm] = useState("");
@@ -30,6 +30,38 @@ export function HomeDashboard({
         <Image source={logo} style={{ width: 82, height: 82, borderRadius: 41 }} resizeMode="contain" />
         <Text style={[S.heroCaption, { marginTop: 8 }]}>MEMÓRIA VIVA</Text>
       </View>
+
+      {!searchMode && (
+        <View style={{ marginBottom: 24 }}>
+          <Text style={[S.heading, { fontSize: 16, marginBottom: 12 }]}>Seu espaço</Text>
+          <View style={{ flexDirection: "row", gap: 10 }}>
+            {[
+              { label: "Grupos", icon: "users", value: stats ? stats.groups : "—" },
+              { label: "Álbuns", icon: "layers", value: stats ? stats.albums : "—" },
+              { label: "Memórias", icon: "image", value: stats ? stats.memories : "—" },
+            ].map((item) => (
+              <View key={item.label} style={{
+                flex: 1, minWidth: 0,
+                paddingVertical: 13, paddingHorizontal: 7,
+                backgroundColor: "#f8f7fb", borderRadius: 12,
+                borderWidth: 1, borderColor: "#efedf4",
+                justifyContent: "center", alignItems: "center", gap: 6,
+              }}>
+                <Icon name={item.icon} size={18} color="#746b92" />
+                <Text style={{ fontSize: 21, color: "#1c1d25", fontWeight: "800" }}>
+                  {item.value}
+                </Text>
+                <Text style={{ fontSize: 11, color: "#777582" }}>{item.label}</Text>
+              </View>
+            ))}
+          </View>
+          {stats?.partial && (
+            <Text style={[S.memoryMeta, { marginTop: 9, textAlign: "center" }]}>
+              Alguns grupos não carregaram; totais de álbuns e memórias podem estar incompletos.
+            </Text>
+          )}
+        </View>
+      )}
 
       {searchMode && (
         <View style={S.searchField}>
