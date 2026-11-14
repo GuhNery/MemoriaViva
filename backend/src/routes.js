@@ -53,6 +53,7 @@ const publicFamily = (f, viewerId) => ({
   name: f.nome,
   description: f.descricao || '',
   photoUrl: f.foto_grupo && viewerId ? signedFileUrl('group', f.id_grupo, viewerId) : null,
+  isAdmin: viewerId ? Number(f.id_admin) === Number(viewerId) : false,
   createdAt: f.data_criacao,
 });
 const publicMember = (row) => ({
