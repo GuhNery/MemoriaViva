@@ -159,6 +159,59 @@ async function familyPayload(familyId, userId) {
   };
 }
 
+// Arquivos privados: cada URL tem assinatura temporária e permissão revalidada.
+router.get('/api/files/:kind/:id', async (req, res, next) => {
+  const { kind } = req.params;
+  const id = Number(req.params.id);
+  const viewer = Number(req.query.viewer);
+  const expires = Number(req.query.expires);
+  const signature = String(req.query.sig || '');
+  const now = Math.floor(Date.now() / 1000);
+  const validSignature = new RegExp('^[a-f0-9]{64}$').test(signature);
+  if (!['media', 'avatar'].includes(kind) ||
+      !Number.isSafeInteger(id) || id < 1 ||
+      !Number.isSafeInteger(viewer) || viewer < 1 ||
+      !Number.isSafeInteger(expires) ||
+      expires < now || expires > now + fileExpirySeconds ||
+      !validSignature) {
+    return res.status(404).json({ error: { message: 'Arquivo indisponível.' } });
+  }
+  const payload = `${kind}:${id}:${viewer}:${expires}`;
+  const expected = crypto.createHmac('sha256', process.env.JWT_SECRET)
+    .update(payload).digest();
+  if (!crypto.timingSafeEqual(Buffer.from(signature, 'hex'), expected)) {
+    return res.status(404).json({ error: { message: 'Arquivo indisponível.' } });
+  }
+  try {
+    let result;
+    if (kind === 'media') {
+      result = await query(
+        `SELECT m.arquivo FROM midia m
+         JOIN subgrupo s ON s.id_subgrupo=m.id_subgrupo
+         JOIN participante_grupo pg ON pg.id_grupo=s.id_grupo AND pg.id_usuario=$2
+         WHERE m.id_midia=$1`, [id, viewer],
+      );
+    } else {
+      result = await query(
+        'SELECT foto_perfil AS arquivo FROM usuario WHERE id_usuario=$1 AND id_usuario=$2',
+        [id, viewer],
+      );
+    }
+    const stored = result.rows[0]?.arquivo;
+    if (!stored || !stored.startsWith('/uploads/')) {
+      return res.status(404).json({ error: { message: 'Arquivo não encontrado.' } });
+    }
+    return res.sendFile(path.basename(stored), {
+      root: uploadsDir,
+      headers: { 'Cache-Control': 'private, max-age=60' },
+    }, (err) => {
+      if (err && !res.headersSent) {
+        res.status(404).json({ error: { message: 'Arquivo indisponível neste servidor.' } });
+      }
+    });
+  } catch (err) { next(err); }
+});
+
 // Health check
 router.get('/health', async (_req, res) => {
   try {
