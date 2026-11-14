@@ -3,7 +3,7 @@ import { Pressable, SafeAreaView, StatusBar, Text, View } from "react-native";
 import { Icon } from "./ui";
 import S from "../theme/prototypeInternalStyles";
 
-export function Header({ family, screen, setScreen }) {
+export function Header({ family, screen, setScreen, onOpenSettings }) {
   const searchActive = screen === "search";
   return (
     <View style={S.header}>
@@ -29,7 +29,7 @@ export function Header({ family, screen, setScreen }) {
         </Pressable>
         {!!family && (
           <Pressable
-            onPress={() => setScreen("settings")}
+            onPress={onOpenSettings || (() => setScreen("settings"))}
             accessibilityRole="button"
             accessibilityLabel="Abrir configurações do grupo"
             style={S.iconAction}
@@ -76,12 +76,12 @@ export function Tabs({ current, setScreen }) {
   );
 }
 
-export function AppLayout({ children, family, screen, setScreen }) {
+export function AppLayout({ children, family, screen, setScreen, onOpenSettings }) {
   return (
     <SafeAreaView style={S.shell}>
       <StatusBar barStyle="dark-content" backgroundColor="#ffffff" />
       <View style={S.shellInner}>
-        <Header family={family} screen={screen} setScreen={setScreen} />
+        <Header family={family} screen={screen} setScreen={setScreen} onOpenSettings={onOpenSettings} />
         <View style={S.main}>{children}</View>
         <Tabs current={screen} setScreen={setScreen} />
       </View>
