@@ -77,7 +77,11 @@ export default function App() {
 
         setScreen("home");
       } else {
-        setScreen("createFamily");
+        // Uma conta pode existir sem participar de nenhum grupo.
+        setFamily(null);
+        setMembers([]);
+        setChapters([]);
+        setScreen("home");
       }
     } catch (error) {
       try {
@@ -193,7 +197,9 @@ export default function App() {
         setScreen("home");
       } else {
         setFamily(null);
-        setScreen("createFamily");
+        setMembers([]);
+        setChapters([]);
+        setScreen("home");
       }
     } catch (error) {
       Alert.alert(
@@ -286,7 +292,7 @@ export default function App() {
     );
   }
 
-  if (screen === "createFamily" || !family) {
+  if (screen === "createFamily") {
     return (
       <PrototypeCreateFamily
         token={token}
@@ -351,6 +357,7 @@ export default function App() {
           onShowTimeline={() => setScreen("timeline")}
           onCreateAlbum={() => setScreen("newChapter")}
           canManage={currentUserIsAdmin}
+          onCreateGroup={() => setScreen("createFamily")}
           searchMode={screen === "search"}
         />
       );
@@ -360,7 +367,7 @@ export default function App() {
       content = (
         <PrototypeGroups
           families={families}
-          activeFamilyId={family.id}
+          activeFamilyId={family?.id}
           onSelectFamily={selectFamily}
           onEditFamily={() => setScreen("settings")}
           onAddFamily={() => setScreen("createFamily")}
@@ -371,6 +378,10 @@ export default function App() {
       break;
 
     case "timeline":
+      if (!family) {
+        content = null;
+        break;
+      }
       content = (
         <Timeline
           chapters={chapters}
@@ -427,6 +438,7 @@ export default function App() {
           onShowTimeline={() => setScreen("timeline")}
           onCreateAlbum={() => setScreen("newChapter")}
           canManage={currentUserIsAdmin}
+          onCreateGroup={() => setScreen("createFamily")}
         />
       );
   }
