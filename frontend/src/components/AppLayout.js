@@ -27,16 +27,14 @@ export function Header({ family, screen, setScreen, onOpenSettings }) {
         >
           <Icon name={searchActive ? "x" : "search"} size={19} color="#303139" />
         </Pressable>
-        {!!family && (
-          <Pressable
+        <Pressable
             onPress={onOpenSettings || (() => setScreen("settings"))}
             accessibilityRole="button"
-            accessibilityLabel="Abrir configurações do grupo"
+            accessibilityLabel="Abrir perfil e configurações"
             style={S.iconAction}
           >
             <Icon name="settings" size={19} color="#303139" />
           </Pressable>
-        )}
       </View>
     </View>
   );
