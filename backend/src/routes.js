@@ -769,17 +769,56 @@ router.patch('/api/chapters/:id', authenticate, async (req, res, next) => {
 });
 
 router.delete('/api/chapters/:id', authenticate, async (req, res, next) => {
+  const id = Number(req.params.id);
+  if (!Number.isSafeInteger(id) || id < 1) {
+    return res.status(400).json({ error: { message: 'Álbum inválido.' } });
+  }
+  const chapter = await assertChapterAccess(id, req.user.id_usuario).catch(next);
+  if (!chapter) return;
+  if (Number(chapter.id_admin) !== Number(req.user.id_usuario)) {
+    return res.status(403).json({ error: { message: 'Somente o administrador do grupo pode excluir álbuns.' } });
+  }
+  if (req.body?.confirmed !== true || typeof req.body?.confirmName !== 'string') {
+    return res.status(400).json({ error: { message: 'Confirme a exclusão informando o nome exato do álbum.' } });
+  }
+  const client = await pool.connect();
+  let files = [];
   try {
-    const chapter = await assertChapterAccess(Number(req.params.id), req.user.id_usuario);
-    if (!chapter) return res.status(404).json({ error: { message: 'Memória não encontrada ou sem permissão.' } });
-    if (chapter.family_permission !== 'admin' && Number(chapter.id_admin) !== Number(req.user.id_usuario)) return res.status(403).json({ error: { message: 'Somente administradores podem excluir álbuns.' } });
-    const media = await query('SELECT arquivo FROM midia WHERE id_subgrupo=$1', [req.params.id]);
-    await query('DELETE FROM subgrupo WHERE id_subgrupo=$1', [req.params.id]);
-    for (const item of media.rows) {
-      if (item.arquivo && item.arquivo.startsWith('/uploads/')) fs.promises.unlink(path.join(uploadsDir, path.basename(item.arquivo))).catch(() => {});
+    await client.query('BEGIN');
+    const result = await client.query(
+      `SELECT s.nome, s.foto_capa, g.id_admin FROM subgrupo s
+       JOIN grupo g ON g.id_grupo=s.id_grupo
+       WHERE s.id_subgrupo=$1 FOR UPDATE OF s`, [id]
+    );
+    const current = result.rows[0];
+    if (!current) {
+      await client.query('ROLLBACK');
+      return res.status(404).json({ error: { message: 'Álbum não encontrado.' } });
     }
-    res.status(204).end();
-  } catch (err) { next(err); }
+    if (Number(current.id_admin) !== Number(req.user.id_usuario)) {
+      await client.query('ROLLBACK');
+      return res.status(403).json({ error: { message: 'Sem permissão para excluir este álbum.' } });
+    }
+    if (req.body.confirmName !== current.nome) {
+      await client.query('ROLLBACK');
+      return res.status(400).json({ error: { message: 'Digite o nome exato do álbum para confirmar.' } });
+    }
+    const media = await client.query('SELECT arquivo FROM midia WHERE id_subgrupo=$1', [id]);
+    files = [current.foto_capa, ...media.rows.map(m => m.arquivo)]
+      .filter(file => typeof file === 'string' && file.startsWith('/uploads/'));
+    await client.query('DELETE FROM subgrupo WHERE id_subgrupo=$1', [id]);
+    await client.query('COMMIT');
+  } catch (err) {
+    await client.query('ROLLBACK').catch(() => {});
+    return next(err);
+  } finally { client.release(); }
+  const results = await Promise.allSettled(
+    [...new Set(files)].map(file => fs.promises.unlink(path.join(uploadsDir, path.basename(file))))
+  );
+  if (results.some(item => item.status === 'rejected' && item.reason?.code !== 'ENOENT')) {
+    console.warn('[Arquivos] Algumas mídias do álbum excluído exigem limpeza de armazenamento.');
+  }
+  return res.json({ message: 'Álbum excluído, incluindo suas memórias e comentários.' });
 });
 
 router.post('/api/chapters/:id/comments', authenticate, async (req, res, next) => {
