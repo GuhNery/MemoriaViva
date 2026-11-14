@@ -15,7 +15,9 @@ function mediaIcon(type) {
 
 function formatShortDate(input) {
   if (!input) return "";
-  const date = new Date(input);
+  const date = /^\d{4}-\d{2}-\d{2}$/.test(String(input))
+    ? new Date(String(input) + "T12:00:00")
+    : new Date(input);
   return Number.isNaN(date.getTime()) ? "" : date.toLocaleDateString("pt-BR");
 }
 
@@ -24,6 +26,7 @@ export function PrototypeHome({
   chapters = [],
   onOpenChapter,
   onShowTimeline,
+  onShowMemories,
   onCreateAlbum,
   onCreateGroup,
   onShowGroups,
@@ -40,8 +43,11 @@ export function PrototypeHome({
       }
     }
     return records.sort((a, b) => {
-      const left = a.media.memoryDate || a.media.createdAt || "";
-      const right = b.media.memoryDate || b.media.createdAt || "";
+      const left = a.media.memoryDate || "";
+      const right = b.media.memoryDate || "";
+      if (!left && !right) return String(b.media.createdAt || "").localeCompare(String(a.media.createdAt || ""));
+      if (!left) return 1;
+      if (!right) return -1;
       return String(right).localeCompare(String(left));
     });
   }, [chapters]);
@@ -137,7 +143,7 @@ export function PrototypeHome({
       <View style={S.headingRow}>
         <Text style={S.heading}>Últimas memórias</Text>
         {!!allMedia.length && (
-          <Pressable onPress={onShowTimeline} accessibilityRole="button" accessibilityLabel="Ver todos os álbuns">
+          <Pressable onPress={onShowMemories} accessibilityRole="button" accessibilityLabel="Ver todas as memórias em ordem cronológica">
             <Text style={S.textLink}>Ver todos</Text>
           </Pressable>
         )}
@@ -157,7 +163,7 @@ export function PrototypeHome({
           <View style={{ flex: 1 }}>
             <Text style={S.memoryName} numberOfLines={1}>{media.title || "Memória sem título"}</Text>
             <Text style={S.memoryMeta} numberOfLines={1}>
-              {chapter.title}{formatShortDate(media.memoryDate || media.createdAt) ? " · " + formatShortDate(media.memoryDate || media.createdAt) : ""}
+              {chapter.title} · {media.memoryDate ? formatShortDate(media.memoryDate) : "Sem data da lembrança"}
             </Text>
           </View>
           <Icon name="chevron-right" size={19} color="#5b5b66" />
