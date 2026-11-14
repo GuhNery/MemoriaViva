@@ -509,6 +509,7 @@ export default function App() {
           onRefresh={() => refreshFamily()}
           onBack={() => setScreen(returnFromMembers)}
           isAdmin={currentUserIsAdmin}
+          currentUserId={user.id}
         />
       );
       break;
