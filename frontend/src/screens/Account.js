@@ -4,6 +4,7 @@ import { api, COLORS, initials } from "../services/api";
 import { Avatar, Icon, Screen } from "../components/ui";
 import S from "../theme/prototypeInternalStyles";
 import { CoverField, uploadCover } from "../components/CoverField";
+import { ConfirmDeletion } from "../components/ConfirmDeletion";
 
 function BackHeader({ title, subtitle, onBack }) {
   return (
@@ -276,7 +277,8 @@ export function Members({ family, token, members = [], onRefresh, onBack, isAdmi
 }
 
 export function Settings({
-  family, token, onFamilyUpdated, onBack, onManageMembers, isAdmin = false,
+  family, token, onFamilyUpdated, onBack, onManageMembers,
+  onDeleteGroup, memberCount = 0, albums = [], isAdmin = false,
 }) {
   const [name, setName] = useState(family?.name || "");
   const [description, setDescription] = useState(family?.description || "");
@@ -284,6 +286,8 @@ export function Settings({
   const [saving, setSaving] = useState(false);
   const [cover, setCover] = useState(null);
   const [uploading, setUploading] = useState(false);
+  const [confirmingDelete, setConfirmingDelete] = useState(false);
+  const mediaCount = albums.reduce((count, album) => count + (album.media?.length || 0), 0);
 
   const saveCover = async () => {
     if (!cover || uploading || !isAdmin) return;
@@ -423,6 +427,39 @@ export function Settings({
         </View>
         <Icon name="chevron-right" size={20} color={COLORS.muted} />
       </Pressable>
+      {isAdmin && onDeleteGroup && (
+        <View style={{ marginTop: 24, marginBottom: 18 }}>
+          <Text style={[S.heading, { fontSize: 17, marginBottom: 12 }]}>Zona de exclusão</Text>
+          <Text style={[S.emptyBody, { textAlign: "left", marginBottom: 14 }]}>
+            Excluir o grupo também exclui os álbuns e lembranças de todos os participantes.
+            Nenhuma conta será excluída.
+          </Text>
+          {!confirmingDelete ? (
+            <Pressable
+              onPress={() => setConfirmingDelete(true)}
+              accessibilityRole="button"
+              accessibilityLabel="Solicitar exclusão do grupo"
+              style={[S.secondaryButton, { borderColor: "#e3bbc4", gap: 9 }]}
+            >
+              <Icon name="trash-2" size={18} color="#a53b4e" />
+              <Text style={[S.secondaryLabel, { color: "#a53b4e" }]}>Excluir este grupo</Text>
+            </Pressable>
+          ) : (
+            <ConfirmDeletion
+              kind="grupo"
+              name={family.name}
+              impact={[
+                `${memberCount} ${memberCount === 1 ? "participante perderá" : "participantes perderão"} o acesso ao grupo`,
+                `${albums.length} ${albums.length === 1 ? "álbum será excluído" : "álbuns serão excluídos"}`,
+                `${mediaCount} ${mediaCount === 1 ? "lembrança será excluída" : "lembranças serão excluídas"}, com seus comentários`,
+                "As contas das pessoas e os outros grupos delas serão mantidos.",
+              ]}
+              onConfirm={onDeleteGroup}
+              onCancel={() => setConfirmingDelete(false)}
+            />
+          )}
+        </View>
+      )}
     </Screen>
   );
 }
