@@ -381,7 +381,7 @@ router.post('/api/auth/profile/photo', authenticate, (req, res, next) => {
       `UPDATE usuario
        SET foto_perfil = $1
        WHERE id_usuario = $2
-       RETURNING id_usuario, nome, email, foto_perfil, data_criacao`,
+       RETURNING id_usuario, nome, email, idade, foto_perfil, data_criacao`,
       [photoUrl, req.user.id_usuario],
     );
 
