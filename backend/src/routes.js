@@ -59,6 +59,9 @@ const publicMedia = (m) => ({
   url: m.arquivo.startsWith('http') ? m.arquivo : m.arquivo,
   type: m.tipo_midia,
   createdAt: m.data_upload,
+  memoryDate: m.data_lembranca
+    ? (m.data_lembranca.toISOString ? m.data_lembranca.toISOString().slice(0, 10) : String(m.data_lembranca).slice(0, 10))
+    : null,
 });
 const publicComment = (c) => ({
   id: asId(c.id_comentario),
@@ -81,11 +84,10 @@ async function listFamiliesForUser(userId) {
   return result.rows.map(publicFamily);
 }
 
-async function assertChapterAccess(chapterId, userId, allowPrivate = true) {
+async function assertChapterAccess(chapterId, userId) {
   const result = await query(
     `SELECT s.*, g.id_admin,
-       pg.permissao AS family_permission,
-       EXISTS (SELECT 1 FROM participante_subgrupo ps WHERE ps.id_subgrupo=s.id_subgrupo AND ps.id_usuario=$2) AS is_chapter_member
+       pg.permissao AS family_permission
      FROM subgrupo s
      JOIN participante_grupo pg ON pg.id_grupo=s.id_grupo AND pg.id_usuario=$2
      JOIN grupo g ON g.id_grupo=s.id_grupo
@@ -93,20 +95,18 @@ async function assertChapterAccess(chapterId, userId, allowPrivate = true) {
     [chapterId, userId],
   );
   if (!result.rowCount) return null;
-  const chapter = result.rows[0];
-  if (!allowPrivate && chapter.visibilidade === 'private' && !chapter.is_chapter_member) return null;
-  if (chapter.visibilidade === 'private' && !chapter.is_chapter_member && Number(chapter.id_admin) !== Number(userId)) return null;
-  return chapter;
+  // Todos os integrantes do grupo acessam os álbuns do grupo; não existem álbuns públicos.
+  return result.rows[0];
 }
 
 async function getChapter(chapterId, userId) {
-  const base = await assertChapterAccess(chapterId, userId, true);
+  const base = await assertChapterAccess(chapterId, userId);
   if (!base) return null;
   const [members, media, comments] = await Promise.all([
     query(
-      `SELECT u.id_usuario FROM participante_subgrupo ps JOIN usuario u ON u.id_usuario=ps.id_usuario
-       WHERE ps.id_subgrupo=$1 ORDER BY u.nome`, [chapterId]),
-    query('SELECT * FROM midia WHERE id_subgrupo=$1 ORDER BY data_upload DESC', [chapterId]),
+      `SELECT pg.id_usuario FROM participante_grupo pg
+       WHERE pg.id_grupo=$1 ORDER BY pg.data_entrada`, [base.id_grupo]),
+    query('SELECT * FROM midia WHERE id_subgrupo=$1 ORDER BY data_lembranca DESC NULLS LAST, data_upload DESC', [chapterId]),
     query(
       `SELECT c.*, u.nome, u.email FROM comentario c JOIN usuario u ON u.id_usuario=c.id_usuario
        WHERE c.id_subgrupo=$1 ORDER BY c.data_criacao ASC`, [chapterId]),
@@ -116,7 +116,7 @@ async function getChapter(chapterId, userId) {
     familyId: asId(base.id_grupo),
     title: base.nome,
     description: base.descricao || '',
-    eventDate: base.data_evento.toISOString ? base.data_evento.toISOString().slice(0, 10) : String(base.data_evento).slice(0, 10),
+    eventDate: base.data_evento ? (base.data_evento.toISOString ? base.data_evento.toISOString().slice(0, 10) : String(base.data_evento).slice(0, 10)) : null,
     visibility: base.visibilidade,
     createdAt: base.data_criacao,
     createdBy: asId(base.id_criador),
@@ -135,11 +135,8 @@ async function familyPayload(familyId, userId) {
      FROM participante_grupo pg JOIN usuario u ON u.id_usuario=pg.id_usuario
      WHERE pg.id_grupo=$1 ORDER BY pg.data_entrada, u.nome`, [familyId]);
   const chapterIds = await query(
-    `SELECT s.id_subgrupo FROM subgrupo s
-     WHERE s.id_grupo=$1 AND (s.visibilidade='family' OR EXISTS (
-       SELECT 1 FROM participante_subgrupo ps WHERE ps.id_subgrupo=s.id_subgrupo AND ps.id_usuario=$2
-     ) OR EXISTS (SELECT 1 FROM grupo g WHERE g.id_grupo=s.id_grupo AND g.id_admin=$2))
-     ORDER BY s.data_evento DESC, s.data_criacao DESC`, [familyId, userId]);
+    `SELECT id_subgrupo FROM subgrupo
+     WHERE id_grupo=$1 ORDER BY data_criacao DESC`, [familyId]);
   const chapters = [];
   for (const row of chapterIds.rows) {
     const chapter = await getChapter(row.id_subgrupo, userId);
@@ -462,71 +459,49 @@ router.post('/api/invitations/:id/decline', authenticate, async (req, res, next)
 });
 
 // Chapters/subgroups
+// Álbuns são coleções temáticas, não eventos: não exigem data ou subparticipantes.
 router.post('/api/families/:familyId/chapters', authenticate, requireFamilyMember, async (req, res, next) => {
+  if (req.familyPermission !== 'admin' && Number(req.familyAdminId) !== Number(req.user.id_usuario)) {
+    return res.status(403).json({ error: { message: 'Somente o administrador pode criar álbuns.' } });
+  }
   const title = String(req.body.title || '').trim();
   const description = String(req.body.description || '').trim();
-  const eventDate = String(req.body.eventDate || '').slice(0, 10);
-  const visibility = req.body.visibility === 'private' ? 'private' : 'family';
-  if (!title || title.length > 150) return res.status(400).json({ error: { message: 'Informe um título de até 150 caracteres.' } });
-  if (!/^\d{4}-\d{2}-\d{2}$/.test(eventDate) || Number.isNaN(Date.parse(`${eventDate}T00:00:00Z`))) return res.status(400).json({ error: { message: 'Informe uma data válida no formato AAAA-MM-DD.' } });
-  const memberIds = Array.isArray(req.body.memberIds) ? [...new Set(req.body.memberIds.map(Number).filter(Number.isInteger))] : [];
-  const client = await pool.connect();
+  if (title.length < 2 || title.length > 150) {
+    return res.status(400).json({ error: { message: 'O nome do álbum deve ter entre 2 e 150 caracteres.' } });
+  }
   try {
-    await client.query('BEGIN');
-    const created = await client.query(
-      `INSERT INTO subgrupo (nome,descricao,data_evento,visibilidade,id_grupo,id_criador)
-       VALUES ($1,$2,$3,$4,$5,$6) RETURNING id_subgrupo`,
-      [title, description || null, eventDate, visibility, req.familyId, req.user.id_usuario],
+    const result = await query(
+      `INSERT INTO subgrupo (nome,descricao,id_grupo,id_criador,visibilidade)
+       VALUES ($1,$2,$3,$4,'family') RETURNING id_subgrupo`,
+      [title,description || null,req.familyId,req.user.id_usuario]
     );
-    const chapterId = created.rows[0].id_subgrupo;
-    const selected = [...new Set([...(memberIds.length ? memberIds : []), Number(req.user.id_usuario)])];
-    for (const userId of selected) {
-      const membership = await client.query('SELECT 1 FROM participante_grupo WHERE id_grupo=$1 AND id_usuario=$2', [req.familyId, userId]);
-      if (membership.rowCount) await client.query("INSERT INTO participante_subgrupo (id_usuario,id_subgrupo,permissao) VALUES ($1,$2,'member') ON CONFLICT DO NOTHING", [userId, chapterId]);
-    }
-    await client.query('COMMIT');
-    res.status(201).json({ chapter: await getChapter(chapterId, req.user.id_usuario) });
-  } catch (err) { await client.query('ROLLBACK').catch(() => {}); next(err); }
-  finally { client.release(); }
+    res.status(201).json({ chapter: await getChapter(result.rows[0].id_subgrupo,req.user.id_usuario) });
+  } catch(err) { next(err); }
 });
 
 router.patch('/api/chapters/:id', authenticate, async (req, res, next) => {
-  const chapterId = Number(req.params.id);
+  const chapterId=Number(req.params.id);
+  if(!Number.isInteger(chapterId)||chapterId<1) return res.status(400).json({error:{message:'Álbum inválido.'}});
   try {
-    const chapter = await assertChapterAccess(chapterId, req.user.id_usuario, true);
-    if (!chapter) return res.status(404).json({ error: { message: 'Memória não encontrada ou sem permissão.' } });
-    if (Number(chapter.id_criador) !== Number(req.user.id_usuario) && chapter.family_permission !== 'admin' && chapter.family_permission !== 'editor') return res.status(403).json({ error: { message: 'Você não tem permissão para editar esta memória.' } });
-    const title = String(req.body.title ?? chapter.nome).trim();
-    const description = String(req.body.description ?? chapter.descricao ?? '').trim();
-    const eventDate = String(req.body.eventDate ?? chapter.data_evento).slice(0, 10);
-    const visibility = req.body.visibility === 'private' ? 'private' : req.body.visibility === 'family' ? 'family' : chapter.visibilidade;
-    if (!title || title.length > 150) return res.status(400).json({ error: { message: 'Informe um título de até 150 caracteres.' } });
-    if (!/^\d{4}-\d{2}-\d{2}$/.test(eventDate) || Number.isNaN(Date.parse(`${eventDate}T00:00:00Z`))) return res.status(400).json({ error: { message: 'Data inválida.' } });
-    const client = await pool.connect();
-    try {
-      await client.query('BEGIN');
-      await client.query('UPDATE subgrupo SET nome=$1,descricao=$2,data_evento=$3,visibilidade=$4 WHERE id_subgrupo=$5', [title, description || null, eventDate, visibility, chapterId]);
-      if (Array.isArray(req.body.memberIds)) {
-        await client.query('DELETE FROM participante_subgrupo WHERE id_subgrupo=$1', [chapterId]);
-        const ids = [...new Set(req.body.memberIds.map(Number).filter(Number.isInteger))];
-        if (!ids.includes(Number(req.user.id_usuario))) ids.push(Number(req.user.id_usuario));
-        for (const userId of ids) {
-          const membership = await client.query('SELECT 1 FROM participante_grupo WHERE id_grupo=$1 AND id_usuario=$2', [chapter.id_grupo, userId]);
-          if (membership.rowCount) await client.query("INSERT INTO participante_subgrupo (id_usuario,id_subgrupo,permissao) VALUES ($1,$2,'member') ON CONFLICT DO NOTHING", [userId, chapterId]);
-        }
-      }
-      await client.query('COMMIT');
-    } catch (err) { await client.query('ROLLBACK').catch(() => {}); throw err; }
-    finally { client.release(); }
-    res.json({ chapter: await getChapter(chapterId, req.user.id_usuario) });
-  } catch (err) { next(err); }
+    const chapter=await assertChapterAccess(chapterId,req.user.id_usuario);
+    if(!chapter) return res.status(404).json({error:{message:'Álbum não encontrado ou sem acesso.'}});
+    if(chapter.family_permission!=='admin' && Number(chapter.id_admin)!==Number(req.user.id_usuario)) {
+      return res.status(403).json({error:{message:'Somente administradores podem editar álbuns.'}});
+    }
+    const title=String(req.body.title ?? chapter.nome).trim();
+    const description=String(req.body.description ?? chapter.descricao ?? '').trim();
+    if(title.length<2||title.length>150) return res.status(400).json({error:{message:'Nome do álbum inválido.'}});
+    await query('UPDATE subgrupo SET nome=$1,descricao=$2 WHERE id_subgrupo=$3',
+      [title,description||null,chapterId]);
+    res.json({chapter:await getChapter(chapterId,req.user.id_usuario)});
+  } catch(err) { next(err); }
 });
 
 router.delete('/api/chapters/:id', authenticate, async (req, res, next) => {
   try {
-    const chapter = await assertChapterAccess(Number(req.params.id), req.user.id_usuario, true);
+    const chapter = await assertChapterAccess(Number(req.params.id), req.user.id_usuario);
     if (!chapter) return res.status(404).json({ error: { message: 'Memória não encontrada ou sem permissão.' } });
-    if (Number(chapter.id_criador) !== Number(req.user.id_usuario) && chapter.family_permission !== 'admin') return res.status(403).json({ error: { message: 'Somente quem criou ou um administrador pode excluir esta memória.' } });
+    if (chapter.family_permission !== 'admin' && Number(chapter.id_admin) !== Number(req.user.id_usuario)) return res.status(403).json({ error: { message: 'Somente administradores podem excluir álbuns.' } });
     const media = await query('SELECT arquivo FROM midia WHERE id_subgrupo=$1', [req.params.id]);
     await query('DELETE FROM subgrupo WHERE id_subgrupo=$1', [req.params.id]);
     for (const item of media.rows) {
@@ -540,7 +515,7 @@ router.post('/api/chapters/:id/comments', authenticate, async (req, res, next) =
   const body = String(req.body.body || '').trim();
   if (!body || body.length > 5000) return res.status(400).json({ error: { message: 'O comentário deve ter entre 1 e 5000 caracteres.' } });
   try {
-    const chapter = await assertChapterAccess(Number(req.params.id), req.user.id_usuario, true);
+    const chapter = await assertChapterAccess(Number(req.params.id), req.user.id_usuario);
     if (!chapter) return res.status(404).json({ error: { message: 'Memória não encontrada ou sem permissão.' } });
     const created = await query('INSERT INTO comentario (conteudo,id_usuario,id_subgrupo) VALUES ($1,$2,$3) RETURNING *', [body, req.user.id_usuario, req.params.id]);
     res.status(201).json({ comment: publicComment({ ...created.rows[0], nome: req.user.nome, email: req.user.email }) });
@@ -558,7 +533,7 @@ router.post('/api/chapters/:id/media', authenticate, (req, res, next) => {
 }, async (req, res, next) => {
   if (!req.file) return res.status(400).json({ error: { message: 'Selecione um arquivo para enviar.' } });
   try {
-    const chapter = await assertChapterAccess(Number(req.params.id), req.user.id_usuario, true);
+    const chapter = await assertChapterAccess(Number(req.params.id), req.user.id_usuario);
     if (!chapter) {
       await fs.promises.unlink(req.file.path).catch(() => {});
       return res.status(404).json({ error: { message: 'Memória não encontrada ou sem permissão.' } });
