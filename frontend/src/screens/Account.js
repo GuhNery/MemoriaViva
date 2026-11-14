@@ -3,6 +3,7 @@ import { ActivityIndicator, Pressable, Text, TextInput, View } from "react-nativ
 import { api, COLORS, initials } from "../services/api";
 import { Avatar, Icon, Screen } from "../components/ui";
 import S from "../theme/prototypeInternalStyles";
+import { CoverField, uploadCover } from "../components/CoverField";
 
 function BackHeader({ title, subtitle, onBack }) {
   return (
@@ -281,6 +282,22 @@ export function Settings({
   const [description, setDescription] = useState(family?.description || "");
   const [message, setMessage] = useState("");
   const [saving, setSaving] = useState(false);
+  const [cover, setCover] = useState(null);
+  const [uploading, setUploading] = useState(false);
+
+  const saveCover = async () => {
+    if (!cover || uploading || !isAdmin) return;
+    try {
+      setUploading(true);
+      setMessage("");
+      const result = await uploadCover({ kind: "group", id: family.id, token, asset: cover });
+      onFamilyUpdated?.(result.family);
+      setCover(null);
+      setMessage("Capa atualizada.");
+    } catch (e) {
+      setMessage(e.message || "Não foi possível atualizar a capa.");
+    } finally { setUploading(false); }
+  };
 
   useEffect(() => {
     setName(family?.name || "");
@@ -317,6 +334,30 @@ export function Settings({
         onBack={onBack}
       />
 
+      {isAdmin ? (
+        <>
+          <CoverField
+            label="Adicionar capa do grupo"
+            value={family?.photoUrl}
+            selected={cover}
+            onPick={setCover}
+            busy={uploading}
+          />
+          {!!cover && (
+            <Pressable
+              onPress={saveCover}
+              disabled={uploading}
+              accessibilityRole="button"
+              accessibilityLabel="Salvar capa do grupo"
+              style={[S.actionButton, { marginBottom: 18 }]}
+            >
+              {uploading ? <ActivityIndicator color="#fff" /> : <Text style={S.actionLabel}>Salvar capa do grupo</Text>}
+            </Pressable>
+          )}
+        </>
+      ) : family?.photoUrl ? (
+        <CoverField value={family.photoUrl} busy label="Capa do grupo" />
+      ) : null}
       <View style={[S.empty, { flexDirection: "row", alignItems: "center", marginBottom: 22 }]}>
         <Icon name="lock" color="#655e82" size={25} />
         <View style={{ flex: 1, gap: 4 }}>
