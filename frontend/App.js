@@ -182,6 +182,16 @@ export default function App() {
     }
   };
 
+  const editGroup = async (target) => {
+    try {
+      await refreshGroup(target.id);
+      setSettingsReturn("groups");
+      setScreen("settings");
+    } catch (e) {
+      showMessage("Erro ao editar grupo", e.message || "Não foi possível carregar as configurações.");
+    }
+  };
+
   const openAlbum = (album) => {
     setSelectedAlbum(album);
     setScreen("album");
@@ -383,7 +393,7 @@ export default function App() {
       invitationsError={invitationsError}
       onRespondInvitation={answerInvitation}
       onSelectFamily={openGroup}
-      onEditFamily={(g) => openGroup(g).then(() => openSettings("groups"))}
+      onEditFamily={editGroup}
       onAddFamily={() => openCreateGroup("groups")}
       isCurrentAdmin={false}
     />;
