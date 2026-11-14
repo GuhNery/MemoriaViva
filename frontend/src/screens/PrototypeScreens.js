@@ -26,6 +26,8 @@ export function PrototypeHome({
   onShowTimeline,
   onCreateAlbum,
   onCreateGroup,
+  onShowGroups,
+  invitationCount = 0,
   canManage = false,
   searchMode = false,
 }) {
@@ -88,6 +90,19 @@ export function PrototypeHome({
           Nenhum grupo é público. Você decide se quer guardar suas lembranças
           individualmente ou compartilhar com pessoas convidadas.
         </Text>
+        {invitationCount > 0 && (
+          <Pressable
+            onPress={onShowGroups}
+            accessibilityRole="button"
+            accessibilityLabel={"Ver " + invitationCount + " convites pendentes"}
+            style={[S.secondaryButton, { marginTop: 10 }]}
+          >
+            <Icon name="mail" size={18} color="#554b79" />
+            <Text style={S.secondaryLabel}>
+              {invitationCount} {invitationCount === 1 ? "convite pendente" : "convites pendentes"}
+            </Text>
+          </Pressable>
+        )}
       </ScrollView>
     );
   }
@@ -225,10 +240,67 @@ export function PrototypeGroups({
   onAddFamily,
   onManageMembers,
   isCurrentAdmin = false,
+  invitations = [],
+  invitationBusyId = null,
+  invitationsError = "",
+  onRespondInvitation,
 }) {
   return (
     <ScrollView showsVerticalScrollIndicator={false} contentContainerStyle={S.scroll}>
       <Text style={S.groupsTitle}>Meus grupos</Text>
+      {invitations.length > 0 && (
+        <View style={{ marginBottom: 25 }}>
+          <View style={[S.headingRow, { marginBottom: 10 }]}>
+            <Text style={[S.heading, { fontSize: 17 }]}>Convites recebidos</Text>
+            <Icon name="mail" size={19} color="#625a8a" />
+          </View>
+          <Text style={[S.emptyBody, { textAlign: "left", marginBottom: 14 }]}>
+            Você só participa de um grupo quando aceita o convite.
+          </Text>
+          {invitations.map((invitation) => (
+            <View key={String(invitation.id)} style={[S.groupCard, { flexDirection: "column", alignItems: "stretch", gap: 10 }]}>
+              <View style={{ flexDirection: "row", alignItems: "center", gap: 11 }}>
+                <View style={S.memoryIconBox}>
+                  <Icon name="lock" size={19} color="#625a8a" />
+                </View>
+                <View style={{ flex: 1 }}>
+                  <Text style={S.groupTitle} numberOfLines={1}>{invitation.groupName}</Text>
+                  <Text style={S.groupHint}>Convite para um grupo privado</Text>
+                </View>
+              </View>
+              <View style={{ flexDirection: "row", gap: 8 }}>
+                <Pressable
+                  disabled={!!invitationBusyId}
+                  onPress={() => onRespondInvitation(invitation, "decline")}
+                  accessibilityRole="button"
+                  accessibilityLabel={"Recusar convite de " + invitation.groupName}
+                  style={[S.secondaryButton, { flex: 1 }]}
+                >
+                  <Text style={S.secondaryLabel}>Recusar</Text>
+                </Pressable>
+                <Pressable
+                  disabled={!!invitationBusyId}
+                  onPress={() => onRespondInvitation(invitation, "accept")}
+                  accessibilityRole="button"
+                  accessibilityLabel={"Aceitar convite de " + invitation.groupName}
+                  style={[S.actionButton, { flex: 1 }]}
+                >
+                  {invitationBusyId === invitation.id ? (
+                    <ActivityIndicator color="#fff" />
+                  ) : (
+                    <Text style={S.actionLabel}>Aceitar</Text>
+                  )}
+                </Pressable>
+              </View>
+            </View>
+          ))}
+        </View>
+      )}
+      {!!invitationsError && (
+        <View style={S.error}>
+          <Text style={S.errorText}>{invitationsError}</Text>
+        </View>
+      )}
       {families.length === 0 && (
         <View style={S.empty}>
           <Icon name="folder" size={28} color="#77738b" />
@@ -254,7 +326,9 @@ export function PrototypeGroups({
               </View>
               <View style={{ flex: 1 }}>
                 <Text style={S.groupTitle} numberOfLines={1}>{family.name}</Text>
-                <Text style={S.groupHint}>{selected ? "Grupo ativo" : "Toque para abrir"}</Text>
+                <Text style={S.groupHint}>
+                  {selected ? "Grupo ativo · Privado" : "Privado · Toque para abrir"}
+                </Text>
               </View>
             </Pressable>
             {selected && isCurrentAdmin ? (
@@ -328,17 +402,22 @@ export function PrototypeCreateFamily({ token, onCreated, onCancel }) {
     <SafeAreaView style={S.shell}>
       <View style={S.shellInner}>
         <ScrollView showsVerticalScrollIndicator={false} contentContainerStyle={S.scroll}>
-      {!!onCancel && (
-        <Pressable
-          onPress={onCancel}
-          accessibilityRole="button"
-          accessibilityLabel="Voltar aos meus grupos"
-          style={{ width: 44, minHeight: 44, justifyContent: "center" }}
-        >
-          <Icon name="arrow-left" size={21} color="#24252c" />
-        </Pressable>
-      )}
+      <Pressable
+        onPress={onCancel}
+        disabled={loading}
+        accessibilityRole="button"
+        accessibilityLabel="Voltar sem criar um grupo"
+        style={({ pressed }) => [{
+          width: 44, minHeight: 44, justifyContent: "center",
+          opacity: pressed ? 0.6 : 1,
+        }]}
+      >
+        <Icon name="arrow-left" size={22} color="#24252c" />
+      </Pressable>
       <Text style={S.formTitle}>Criar grupo</Text>
+      <Text style={[S.note, { marginTop: 9, marginBottom: 6 }]}>
+        Um espaço privado para guardar suas lembranças, sozinho ou com convidados.
+      </Text>
       <View style={S.coverPlaceholder}>
         <Text style={[S.note, { marginBottom: 9 }]}>Capa do grupo</Text>
         <View style={S.coverInner}>
@@ -369,7 +448,12 @@ export function PrototypeCreateFamily({ token, onCreated, onCancel }) {
           accessibilityLabel="Descrição do grupo"
         />
       </View>
-      <Text style={S.note}>Você será o administrador deste grupo. A capa poderá ser configurada em uma próxima etapa.</Text>
+      <View style={[S.empty, { flexDirection: "row", gap: 12, alignItems: "center", paddingVertical: 15, marginBottom: 20 }]}>
+        <Icon name="lock" size={23} color="#635c80" />
+        <Text style={[S.emptyBody, { textAlign: "left", flex: 1 }]}>
+          O grupo será privado. Você será o administrador e poderá convidar outras pessoas depois.
+        </Text>
+      </View>
       {!!error && (
         <View style={S.error} accessibilityRole="alert">
           <Text style={S.errorText}>{error}</Text>
@@ -383,6 +467,15 @@ export function PrototypeCreateFamily({ token, onCreated, onCancel }) {
         style={({ pressed }) => [S.actionButton, (loading || pressed) && { opacity: 0.7 }]}
       >
         {loading ? <ActivityIndicator color="#fff" /> : <Text style={S.actionLabel}>Criar grupo</Text>}
+      </Pressable>
+      <Pressable
+        onPress={onCancel}
+        disabled={loading}
+        accessibilityRole="button"
+        accessibilityLabel="Cancelar criação do grupo"
+        style={[S.secondaryButton, { marginTop: 12 }]}
+      >
+        <Text style={S.secondaryLabel}>Cancelar e voltar</Text>
       </Pressable>
         </ScrollView>
       </View>
