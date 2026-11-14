@@ -1,0 +1,34 @@
+name: Validar Memória Viva
+
+on:
+  push:
+    branches:
+      - feat/alinhamento-prototipo-etapa-1
+  pull_request:
+  workflow_dispatch:
+
+jobs:
+  backend:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+      - name: Instalar dependências
+        run: npm install --prefix backend --no-audit --no-fund
+      - name: Validar sintaxe da API
+        run: npm run check --prefix backend
+
+  frontend:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+      - name: Instalar dependências
+        run: npm install --prefix frontend --no-audit --no-fund
+      - name: Compilar Expo Web
+        working-directory: frontend
+        run: npx expo export --platform web
