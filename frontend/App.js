@@ -10,11 +10,8 @@ import { Alert, Platform } from "react-native";
 
 import { Welcome, Auth } from "./src/screens/Onboarding";
 
-import {
-  Timeline,
-  ChapterForm,
-  ChapterDetail,
-} from "./src/screens/Memories";
+import { ChapterDetail } from "./src/screens/Memories";
+import { AlbumList, AlbumForm } from "./src/screens/AlbumScreens";
 
 import {
   Members,
@@ -375,6 +372,7 @@ export default function App() {
         onRefresh={() => refreshFamily()}
         onEdit={() => setScreen("editChapter")}
         onDelete={deleteChapter}
+        canManage={currentUserIsAdmin}
       />
     );
   }
@@ -384,10 +382,9 @@ export default function App() {
     screen === "editChapter"
   ) {
     return (
-      <ChapterForm
+      <AlbumForm
         family={family}
         token={token}
-        members={members}
         existing={
           screen === "editChapter"
             ? selected
@@ -453,12 +450,12 @@ export default function App() {
         break;
       }
       content = (
-        <Timeline
+        <AlbumList
           chapters={chapters}
-          members={members}
-          setScreen={setScreen}
-          openChapter={openChapter}
+          onOpen={openChapter}
+          onBack={() => setScreen("home")}
           onAdd={() => setScreen("newChapter")}
+          canManage={currentUserIsAdmin}
         />
       );
       break;
