@@ -127,19 +127,18 @@ export function Field({
 
 export function Screen({ children, scroll = true }) {
   return (
-    <SafeAreaView style={styles.safe}>
+    <SafeAreaView style={[styles.safe, { backgroundColor: "#ecebee" }]}>
       <StatusBar barStyle="dark-content" backgroundColor={COLORS.paper} />
-
-      {scroll ? (
-        <ScrollView
-          contentContainerStyle={styles.screenContent}
-          showsVerticalScrollIndicator={false}
-        >
-          {children}
-        </ScrollView>
-      ) : (
-        children
-      )}
+      <View style={{ flex: 1, width: "100%", maxWidth: 460, alignSelf: "center", backgroundColor: COLORS.paper }}>
+        {scroll ? (
+          <ScrollView
+            contentContainerStyle={styles.screenContent}
+            showsVerticalScrollIndicator={false}
+          >
+            {children}
+          </ScrollView>
+        ) : children}
+      </View>
     </SafeAreaView>
   );
 }
