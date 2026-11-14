@@ -13,6 +13,7 @@ import { Welcome, Auth } from "./src/screens/Onboarding";
 import { ChapterDetail } from "./src/screens/Memories";
 import { AlbumList, AlbumForm } from "./src/screens/AlbumScreens";
 import { MemoryTimeline } from "./src/screens/MemoryTimeline";
+import { MediaDetail } from "./src/screens/MediaDetail";
 
 import {
   Members,
@@ -31,6 +32,7 @@ export default function App() {
   const [chapters, setChapters] = useState([]);
   const [screen, setScreen] = useState("welcome");
   const [selected, setSelected] = useState(null);
+  const [selectedMediaId, setSelectedMediaId] = useState(null);
   const [authMode, setAuthMode] = useState("login");
   const [createFamilyReturn, setCreateFamilyReturn] = useState("groups");
   const [invitations, setInvitations] = useState([]);
@@ -299,6 +301,12 @@ export default function App() {
     setScreen("chapter");
   };
 
+  const openMedia = (media, album) => {
+    if (album) setSelected(album);
+    setSelectedMediaId(media.id);
+    setScreen("media");
+  };
+
   const deleteChapter = async () => {
     if (!selected?.id) return;
 
@@ -364,6 +372,23 @@ export default function App() {
     );
   }
 
+  if (screen === "media" && selectedMediaId) {
+    return (
+      <MediaDetail
+        mediaId={selectedMediaId}
+        token={token}
+        currentUserId={user.id}
+        onBack={() => setScreen("chapter")}
+        onRefresh={() => refreshFamily()}
+        onDeleted={async () => {
+          await refreshFamily();
+          setSelectedMediaId(null);
+          setScreen("chapter");
+        }}
+      />
+    );
+  }
+
   if (screen === "chapter") {
     return (
       <ChapterDetail
@@ -374,6 +399,7 @@ export default function App() {
         onEdit={() => setScreen("editChapter")}
         onDelete={deleteChapter}
         canManage={currentUserIsAdmin}
+        onOpenMedia={(media) => openMedia(media, selected)}
       />
     );
   }
@@ -416,6 +442,7 @@ export default function App() {
           family={family}
           chapters={chapters}
           onOpenChapter={openChapter}
+          onOpenMedia={openMedia}
           onShowTimeline={() => setScreen("timeline")}
           onShowMemories={() => setScreen("memories")}
           onCreateAlbum={() => setScreen("newChapter")}
@@ -467,6 +494,7 @@ export default function App() {
         <MemoryTimeline
           chapters={chapters}
           onOpen={openChapter}
+          onOpenMedia={openMedia}
           onBack={() => setScreen("home")}
         />
       );
@@ -523,6 +551,7 @@ export default function App() {
           family={family}
           chapters={chapters}
           onOpenChapter={openChapter}
+          onOpenMedia={openMedia}
           onShowTimeline={() => setScreen("timeline")}
           onShowMemories={() => setScreen("memories")}
           onCreateAlbum={() => setScreen("newChapter")}
