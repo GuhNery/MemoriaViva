@@ -659,6 +659,7 @@ router.get('/api/media/:id',authenticate,async(req,res,next)=>{
     res.json({media:{...publicMedia(record,req.user.id_usuario),authorName:record.author_name,
       albumId:asId(record.id_subgrupo),groupId:asId(record.id_grupo),
       canManage:canManageMedia(record,req.user.id_usuario),
+      isGroupAdmin:record.group_permission==='admin' || Number(record.id_admin)===Number(req.user.id_usuario),
       comments:comments.rows.map(publicComment)
     }});
   }catch(err){next(err)}
