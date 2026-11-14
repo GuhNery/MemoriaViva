@@ -25,6 +25,7 @@ export function PrototypeHome({
   family,
   chapters = [],
   onOpenChapter,
+  onOpenMedia,
   onShowTimeline,
   onShowMemories,
   onCreateAlbum,
@@ -154,7 +155,7 @@ export function PrototypeHome({
           key={String(chapter.id) + "-" + String(media.id)}
           accessibilityRole="button"
           accessibilityLabel={"Abrir " + (media.title || "memória")}
-          onPress={() => onOpenChapter(chapter)}
+          onPress={() => onOpenMedia(media, chapter)}
           style={({ pressed }) => [S.memoryRow, pressed && { opacity: 0.7 }]}
         >
           <View style={S.memoryIconBox}>
