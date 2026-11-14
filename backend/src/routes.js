@@ -447,6 +447,64 @@ router.patch('/api/families/:id', authenticate, requireFamilyMember, async (req,
   } catch (err) { next(err); }
 });
 
+// Exclusão definitiva de grupos. Nunca remove contas de usuários.
+// A interface solicita digitar o nome e a API valida novamente a confirmação.
+router.delete('/api/families/:id', authenticate, requireFamilyMember, async (req, res, next) => {
+  if (Number(req.familyAdminId) !== Number(req.user.id_usuario)) {
+    return res.status(403).json({ error: { message: 'Somente o criador e administrador pode excluir este grupo.' } });
+  }
+  if (req.body?.confirmed !== true || typeof req.body?.confirmName !== 'string') {
+    return res.status(400).json({ error: { message: 'Confirme a exclusão informando o nome exato do grupo.' } });
+  }
+  const client = await pool.connect();
+  let files = [];
+  try {
+    await client.query('BEGIN');
+    const result = await client.query(
+      'SELECT nome, foto_grupo, id_admin FROM grupo WHERE id_grupo=$1 FOR UPDATE',
+      [req.familyId]
+    );
+    const current = result.rows[0];
+    if (!current) {
+      await client.query('ROLLBACK');
+      return res.status(404).json({ error: { message: 'Grupo não encontrado.' } });
+    }
+    if (Number(current.id_admin) !== Number(req.user.id_usuario)) {
+      await client.query('ROLLBACK');
+      return res.status(403).json({ error: { message: 'Você não pode excluir este grupo.' } });
+    }
+    if (req.body.confirmName !== current.nome) {
+      await client.query('ROLLBACK');
+      return res.status(400).json({ error: { message: 'Digite exatamente o nome atual do grupo para confirmar.' } });
+    }
+    const media = await client.query(
+      `SELECT m.arquivo FROM midia m JOIN subgrupo s ON s.id_subgrupo=m.id_subgrupo WHERE s.id_grupo=$1`,
+      [req.familyId]
+    );
+    const albums = await client.query(
+      'SELECT foto_capa FROM subgrupo WHERE id_grupo=$1',
+      [req.familyId]
+    );
+    files = [current.foto_grupo, ...albums.rows.map(a => a.foto_capa), ...media.rows.map(m => m.arquivo)]
+      .filter(file => typeof file === 'string' && file.startsWith('/uploads/'));
+    // Foreign keys ON DELETE CASCADE remove álbuns, mídias, comentários, convites e participantes.
+    await client.query('DELETE FROM grupo WHERE id_grupo=$1', [req.familyId]);
+    await client.query('COMMIT');
+  } catch (err) {
+    await client.query('ROLLBACK').catch(() => {});
+    return next(err);
+  } finally {
+    client.release();
+  }
+  const results = await Promise.allSettled(
+    [...new Set(files)].map(file => fs.promises.unlink(path.join(uploadsDir, path.basename(file))))
+  );
+  if (results.some(item => item.status === 'rejected' && item.reason?.code !== 'ENOENT')) {
+    console.warn('[Arquivos] Algumas mídias do grupo excluído exigem limpeza de armazenamento.');
+  }
+  return res.json({ message: 'Grupo e seu conteúdo excluídos. As contas dos participantes foram preservadas.' });
+});
+
 // Uma capa é uma imagem privada, distinta das lembranças armazenadas no álbum.
 function receiveCover(req, res, next) {
   upload.single('file')(req, res, (err) => {
