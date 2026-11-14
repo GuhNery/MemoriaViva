@@ -4,12 +4,7 @@ import * as DocumentPicker from "expo-document-picker";
 import { api, COLORS } from "../services/api";
 import { Icon, Screen } from "../components/ui";
 import S from "../theme/prototypeInternalStyles";
-
-function validateDate(value) {
-  if (!/^\d{4}-\d{2}-\d{2}$/.test(value)) return false;
-  const parsed = new Date(value + "T12:00:00Z");
-  return !Number.isNaN(parsed.getTime()) && parsed.toISOString().slice(0, 10) === value;
-}
+import { maskBrazilianDate, brazilianDateToIso } from "../utils/memoryDate";
 
 export function CreateMemory({ album, token, onBack, onSaved }) {
   const [selected, setSelected] = useState(null);
@@ -41,8 +36,9 @@ export function CreateMemory({ album, token, onBack, onSaved }) {
     if (title.trim().length < 2 || title.trim().length > 150) {
       return setError("Informe o nome da lembrança (2 a 150 caracteres).");
     }
-    if (!validateDate(memoryDate)) {
-      return setError("Informe uma data válida no formato AAAA-MM-DD.");
+    const isoDate = brazilianDateToIso(memoryDate);
+    if (!isoDate) {
+      return setError("Informe uma data válida no formato DD/MM/AAAA. Ex.: 14/11/2026.");
     }
     if (place.length > 160 || story.length > 10000) {
       return setError("Local ou história ultrapassam o tamanho permitido.");
@@ -53,7 +49,7 @@ export function CreateMemory({ album, token, onBack, onSaved }) {
       setError("");
       const form = new FormData();
       form.append("title", title.trim());
-      form.append("memoryDate", memoryDate);
+      form.append("memoryDate", isoDate);
       form.append("place", place.trim());
       form.append("story", story.trim());
 
@@ -134,10 +130,19 @@ export function CreateMemory({ album, token, onBack, onSaved }) {
           style={S.input} accessibilityLabel="Nome da memória" />
       </View>
       <View style={S.field}>
-        <Text style={S.label}>Data da memória</Text>
-        <TextInput value={memoryDate} onChangeText={setMemoryDate} maxLength={10}
-          placeholder="AAAA-MM-DD" placeholderTextColor="#898793"
-          style={S.input} accessibilityLabel="Data em que a memória aconteceu" />
+        <Text style={S.label}>Data da memória (DD/MM/AAAA)</Text>
+        <TextInput
+          value={memoryDate}
+          onChangeText={(text) => setMemoryDate(maskBrazilianDate(text))}
+          maxLength={10}
+          keyboardType="number-pad"
+          autoCorrect={false}
+          placeholder="DD/MM/AAAA"
+          placeholderTextColor="#898793"
+          style={S.input}
+          accessibilityLabel="Data em que a memória aconteceu"
+          accessibilityHint="Digite apenas os números do dia, mês e ano. As barras são preenchidas automaticamente."
+        />
       </View>
       <View style={S.field}>
         <Text style={S.label}>Local (opcional)</Text>
