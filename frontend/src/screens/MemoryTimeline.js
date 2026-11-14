@@ -70,7 +70,7 @@ export function MemoryTimeline({ chapters = [], onOpen, onBack }) {
           accessibilityLabel={oldestFirst ? "Ordenar das mais recentes para as antigas" : "Ordenar das mais antigas para as recentes"}
           style={[S.secondaryButton, { paddingHorizontal: 11, minHeight: 41 }]}
         >
-          <Icon name="arrow-down-up" size={16} color="#595277" />
+          <Icon name="repeat" size={16} color="#595277" />
           <Text style={S.secondaryLabel}>
             {oldestFirst ? "Antigas primeiro" : "Recentes primeiro"}
           </Text>
