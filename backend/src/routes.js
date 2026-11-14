@@ -759,10 +759,18 @@ router.post('/api/chapters/:id/media', authenticate, (req, res, next) => {
     }
     const type = mediaType(req.file.mimetype);
     const url = `/uploads/${req.file.filename}`;
-    const caption = String(req.body.caption || '').trim().slice(0, 255);
+    const title = String(req.body.title || '').trim();
+    const place = String(req.body.place || '').trim();
+    const story = String(req.body.story || '').trim();
+    if (!title || title.length > 150 || place.length > 160 || story.length > 10000) {
+      await fs.promises.unlink(req.file.path).catch(() => {});
+      return res.status(400).json({ error: { message: 'Informe título (até 150 caracteres), local e história dentro dos limites permitidos.' } });
+    }
     const inserted = await query(
-      'INSERT INTO midia (arquivo,descricao,tipo_midia,id_usuario,id_subgrupo,data_lembranca) VALUES ($1,$2,$3,$4,$5,$6) RETURNING *',
-      [url, caption || req.file.originalname.slice(0, 255), type, req.user.id_usuario, req.params.id, memoryDate],
+      `INSERT INTO midia (arquivo,descricao,tipo_midia,id_usuario,id_subgrupo,data_lembranca,titulo,local_lembranca,historia)
+       VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9) RETURNING *`,
+      [url, title, type, req.user.id_usuario, req.params.id, memoryDate,
+       title, place || null, story || null],
     );
     res.status(201).json({ media: publicMedia(inserted.rows[0], req.user.id_usuario) });
   } catch (err) {
@@ -820,11 +828,18 @@ router.patch('/api/media/:id',authenticate,async(req,res,next)=>{
     const record=await mediaForUser(id,req.user.id_usuario);
     if(!record)return res.status(404).json({error:{message:'Lembrança não encontrada.'}});
     if(!canManageMedia(record,req.user.id_usuario))return res.status(403).json({error:{message:'Somente o autor ou administrador pode editar.'}});
-    const caption=String(req.body.caption ?? record.descricao ?? '').trim();
+    const title=String(req.body.title ?? req.body.caption ?? record.titulo ?? record.descricao ?? '').trim();
+    const place=String(req.body.place ?? record.local_lembranca ?? '').trim();
+    const story=String(req.body.story ?? record.historia ?? '').trim();
     const memoryDate=String(req.body.memoryDate ?? (record.data_lembranca ? record.data_lembranca.toISOString().slice(0,10) : '')).trim();
-    if(caption.length>255)return res.status(400).json({error:{message:'A descrição tem limite de 255 caracteres.'}});
+    if(!title || title.length>150 || place.length>160 || story.length>10000) {
+      return res.status(400).json({error:{message:'Título, local ou história fora dos limites permitidos.'}});
+    }
     if(!validMemoryDate(memoryDate))return res.status(400).json({error:{message:'Informe a data da lembrança no formato AAAA-MM-DD.'}});
-    await query('UPDATE midia SET descricao=$1,data_lembranca=$2 WHERE id_midia=$3',[caption||null,memoryDate,id]);
+    await query(
+      `UPDATE midia SET titulo=$1,descricao=$2,local_lembranca=$3,historia=$4,data_lembranca=$5 WHERE id_midia=$6`,
+      [title,title,place||null,story||null,memoryDate,id]
+    );
     res.json({message:'Lembrança atualizada.'});
   }catch(err){next(err)}
 });
