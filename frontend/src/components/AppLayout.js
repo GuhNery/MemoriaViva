@@ -74,12 +74,12 @@ export function Tabs({ current, setScreen }) {
   );
 }
 
-export function AppLayout({ children, family, screen, setScreen, onOpenSettings }) {
+export function AppLayout({ children, family, screen, setScreen, onOpenSettings, hideHeader = false }) {
   return (
     <SafeAreaView style={S.shell}>
       <StatusBar barStyle="dark-content" backgroundColor="#ffffff" />
       <View style={S.shellInner}>
-        <Header family={family} screen={screen} setScreen={setScreen} onOpenSettings={onOpenSettings} />
+        {!hideHeader && <Header family={family} screen={screen} setScreen={setScreen} onOpenSettings={onOpenSettings} />}
         <View style={S.main}>{children}</View>
         <Tabs current={screen} setScreen={setScreen} />
       </View>
