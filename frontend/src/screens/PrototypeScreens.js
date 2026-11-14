@@ -25,6 +25,7 @@ export function PrototypeHome({
   onOpenChapter,
   onShowTimeline,
   onCreateAlbum,
+  onCreateGroup,
   canManage = false,
   searchMode = false,
 }) {
@@ -52,6 +53,44 @@ export function PrototypeHome({
     !term || [chapter.title, chapter.description].filter(Boolean)
       .some((value) => String(value).toLocaleLowerCase("pt-BR").includes(term)),
   );
+
+  // A conta pode existir sem grupos. Não bloqueamos o restante do aplicativo.
+  if (!family) {
+    return (
+      <ScrollView showsVerticalScrollIndicator={false} contentContainerStyle={S.scroll}>
+        <View style={S.hero}>
+          <Image
+            source={brandLogo}
+            style={S.heroLogo}
+            resizeMode="contain"
+            accessibilityLabel="Logotipo do Memória Viva"
+          />
+          <Text style={S.heroCaption}>MEMÓRIA VIVA</Text>
+        </View>
+        <View style={S.empty}>
+          <Icon name="lock" size={31} color="#77738b" />
+          <Text style={S.emptyTitle}>Suas memórias começam aqui</Text>
+          <Text style={S.emptyBody}>
+            Você ainda não participa de nenhum grupo. Pode criar um espaço
+            privado só para você ou aguardar um convite de alguém.
+          </Text>
+        </View>
+        <Pressable
+          onPress={onCreateGroup}
+          accessibilityRole="button"
+          accessibilityLabel="Criar meu primeiro grupo"
+          style={({ pressed }) => [S.actionButton, { marginTop: 18 }, pressed && { opacity: 0.75 }]}
+        >
+          <Icon name="plus" color="#fff" size={20} />
+          <Text style={S.actionLabel}>Criar meu primeiro grupo</Text>
+        </Pressable>
+        <Text style={[S.note, { marginTop: 18 }]}>
+          Nenhum grupo é público. Você decide se quer guardar suas lembranças
+          individualmente ou compartilhar com pessoas convidadas.
+        </Text>
+      </ScrollView>
+    );
+  }
 
   return (
     <ScrollView showsVerticalScrollIndicator={false} contentContainerStyle={S.scroll}>
@@ -157,7 +196,7 @@ export function PrototypeHome({
             <Icon name="layers" size={27} color="#77738b" />
             <Text style={S.emptyTitle}>Nenhum álbum criado</Text>
             <Text style={S.emptyBody}>
-              Os álbuns organizam as memórias da {family?.name || "sua família"} por assunto.
+              Os álbuns organizam as memórias do grupo {family?.name || "selecionado"} por assunto.
             </Text>
           </View>
         )
@@ -190,6 +229,16 @@ export function PrototypeGroups({
   return (
     <ScrollView showsVerticalScrollIndicator={false} contentContainerStyle={S.scroll}>
       <Text style={S.groupsTitle}>Meus grupos</Text>
+      {families.length === 0 && (
+        <View style={S.empty}>
+          <Icon name="folder" size={28} color="#77738b" />
+          <Text style={S.emptyTitle}>Nenhum grupo por enquanto</Text>
+          <Text style={S.emptyBody}>
+            Crie um espaço privado para suas memórias ou aceite o convite
+            de alguém para participar de um grupo existente.
+          </Text>
+        </View>
+      )}
       {families.map((family) => {
         const selected = String(family.id) === String(activeFamilyId);
         return (
@@ -232,6 +281,7 @@ export function PrototypeGroups({
         <Icon name="plus" color="#2b2b31" size={24} />
         <Text style={S.addGroupText}>Adicione um grupo</Text>
       </Pressable>
+      {!!activeFamilyId && (
       <Pressable
         onPress={onManageMembers}
         accessibilityRole="button"
@@ -241,6 +291,7 @@ export function PrototypeGroups({
         <Icon name="user-plus" size={18} color="#33343a" />
         <Text style={S.secondaryLabel}>Integrantes do grupo ativo</Text>
       </Pressable>
+      )}
     </ScrollView>
   );
 }
@@ -300,7 +351,7 @@ export function PrototypeCreateFamily({ token, onCreated, onCancel }) {
           style={S.input}
           value={name}
           onChangeText={setName}
-          placeholder="Ex.: Família Pereira"
+          placeholder="Ex.: Viagens, Família, Amigos..."
           placeholderTextColor="#92939a"
           maxLength={100}
           accessibilityLabel="Nome do grupo"
