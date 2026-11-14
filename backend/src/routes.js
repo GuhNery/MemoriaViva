@@ -538,11 +538,19 @@ router.post('/api/chapters/:id/media', authenticate, (req, res, next) => {
       await fs.promises.unlink(req.file.path).catch(() => {});
       return res.status(404).json({ error: { message: 'Memória não encontrada ou sem permissão.' } });
     }
+    const memoryDate = String(req.body.memoryDate || '').trim();
+    const parsed = /^\d{4}-\d{2}-\d{2}$/.test(memoryDate)
+      ? new Date(`${memoryDate}T12:00:00Z`) : new Date(NaN);
+    if (Number.isNaN(parsed.getTime()) || parsed.toISOString().slice(0, 10) !== memoryDate) {
+      await fs.promises.unlink(req.file.path).catch(() => {});
+      return res.status(400).json({ error: { message: 'Informe a data da lembrança no formato AAAA-MM-DD.' } });
+    }
     const type = mediaType(req.file.mimetype);
     const url = `/uploads/${req.file.filename}`;
+    const caption = String(req.body.caption || '').trim().slice(0, 255);
     const inserted = await query(
-      'INSERT INTO midia (arquivo,descricao,tipo_midia,id_usuario,id_subgrupo) VALUES ($1,$2,$3,$4,$5) RETURNING *',
-      [url, req.file.originalname.slice(0, 255), type, req.user.id_usuario, req.params.id],
+      'INSERT INTO midia (arquivo,descricao,tipo_midia,id_usuario,id_subgrupo,data_lembranca) VALUES ($1,$2,$3,$4,$5,$6) RETURNING *',
+      [url, caption || req.file.originalname.slice(0, 255), type, req.user.id_usuario, req.params.id, memoryDate],
     );
     res.status(201).json({ media: publicMedia(inserted.rows[0]) });
   } catch (err) {
