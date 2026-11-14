@@ -267,7 +267,7 @@ export function MediaDetail({ mediaId, token, currentUserId, onBack, onRefresh, 
         <Text style={S.memoryMeta}>{media.comments?.length || 0}</Text>
       </View>
       {(media.comments || []).map((item) => {
-        const canEdit = media.canManage || String(item.user?.id) === String(currentUserId);
+        const canEdit = media.isGroupAdmin || String(item.user?.id) === String(currentUserId);
         return (
           <View key={String(item.id)} style={[S.groupCard, { flexDirection: "column", alignItems: "stretch" }]}>
             <View style={{ flexDirection: "row", justifyContent: "space-between", alignItems: "center" }}>
