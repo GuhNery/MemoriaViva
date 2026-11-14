@@ -65,6 +65,7 @@ const publicMember = (row) => ({
 const mediaType = (mime = '') => mime.startsWith('image/') ? 'image' : mime.startsWith('video/') ? 'video' : mime.startsWith('audio/') ? 'audio' : 'file';
 const publicMedia = (m, viewerId) => ({
   id: asId(m.id_midia),
+  authorId: asId(m.id_usuario),
   title: m.descricao || path.basename(m.arquivo),
   url: signedFileUrl('media', m.id_midia, viewerId),
   type: m.tipo_midia,
@@ -620,6 +621,134 @@ router.post('/api/chapters/:id/media', authenticate, (req, res, next) => {
     await fs.promises.unlink(req.file.path).catch(() => {});
     next(err);
   }
+});
+
+// Detalhes e administração de lembranças individuais (não do álbum inteiro).
+async function mediaForUser(mediaId,userId) {
+  const result=await query(
+    `SELECT m.*,s.id_grupo,g.id_admin,pg.permissao AS group_permission,u.nome AS author_name
+     FROM midia m
+     JOIN subgrupo s ON s.id_subgrupo=m.id_subgrupo
+     JOIN grupo g ON g.id_grupo=s.id_grupo
+     JOIN participante_grupo pg ON pg.id_grupo=g.id_grupo AND pg.id_usuario=$2
+     JOIN usuario u ON u.id_usuario=m.id_usuario
+     WHERE m.id_midia=$1`,[mediaId,userId]
+  );
+  return result.rows[0] || null;
+}
+function canManageMedia(record,userId) {
+  return Number(record.id_usuario)===Number(userId) ||
+    record.group_permission==='admin' || Number(record.id_admin)===Number(userId);
+}
+function validMemoryDate(value) {
+  if(!/^\d{4}-\d{2}-\d{2}$/.test(value)) return false;
+  const parsed = new Date(`${value}T12:00:00Z`);
+  return !Number.isNaN(parsed.getTime()) && parsed.toISOString().slice(0,10)===value;
+}
+
+router.get('/api/media/:id',authenticate,async(req,res,next)=>{
+  const id=Number(req.params.id);
+  if(!Number.isSafeInteger(id)||id<1)return res.status(400).json({error:{message:'Mídia inválida.'}});
+  try {
+    const record=await mediaForUser(id,req.user.id_usuario);
+    if(!record)return res.status(404).json({error:{message:'Lembrança não encontrada ou sem permissão.'}});
+    const comments=await query(
+      `SELECT c.*,u.nome,u.email FROM comentario c JOIN usuario u ON u.id_usuario=c.id_usuario
+       WHERE c.id_midia=$1 ORDER BY c.data_criacao ASC`,[id]
+    );
+    res.json({media:{...publicMedia(record,req.user.id_usuario),authorName:record.author_name,
+      albumId:asId(record.id_subgrupo),groupId:asId(record.id_grupo),
+      canManage:canManageMedia(record,req.user.id_usuario),
+      comments:comments.rows.map(publicComment)
+    }});
+  }catch(err){next(err)}
+});
+
+router.patch('/api/media/:id',authenticate,async(req,res,next)=>{
+  const id=Number(req.params.id);
+  if(!Number.isSafeInteger(id)||id<1)return res.status(400).json({error:{message:'Mídia inválida.'}});
+  try {
+    const record=await mediaForUser(id,req.user.id_usuario);
+    if(!record)return res.status(404).json({error:{message:'Lembrança não encontrada.'}});
+    if(!canManageMedia(record,req.user.id_usuario))return res.status(403).json({error:{message:'Somente o autor ou administrador pode editar.'}});
+    const caption=String(req.body.caption ?? record.descricao ?? '').trim();
+    const memoryDate=String(req.body.memoryDate ?? (record.data_lembranca ? record.data_lembranca.toISOString().slice(0,10) : '')).trim();
+    if(caption.length>255)return res.status(400).json({error:{message:'A descrição tem limite de 255 caracteres.'}});
+    if(!validMemoryDate(memoryDate))return res.status(400).json({error:{message:'Informe a data da lembrança no formato AAAA-MM-DD.'}});
+    await query('UPDATE midia SET descricao=$1,data_lembranca=$2 WHERE id_midia=$3',[caption||null,memoryDate,id]);
+    res.json({message:'Lembrança atualizada.'});
+  }catch(err){next(err)}
+});
+
+router.delete('/api/media/:id',authenticate,async(req,res,next)=>{
+  const id=Number(req.params.id);
+  if(!Number.isSafeInteger(id)||id<1)return res.status(400).json({error:{message:'Mídia inválida.'}});
+  try {
+    const record=await mediaForUser(id,req.user.id_usuario);
+    if(!record)return res.status(404).json({error:{message:'Lembrança não encontrada.'}});
+    if(!canManageMedia(record,req.user.id_usuario))return res.status(403).json({error:{message:'Somente o autor ou administrador pode excluir.'}});
+    await query('DELETE FROM midia WHERE id_midia=$1',[id]);
+    if(record.arquivo?.startsWith('/uploads/')) {
+      await fs.promises.unlink(path.join(uploadsDir,path.basename(record.arquivo))).catch(()=>{});
+    }
+    res.status(204).end();
+  }catch(err){next(err)}
+});
+
+router.post('/api/media/:id/comments',authenticate,async(req,res,next)=>{
+  const id=Number(req.params.id);
+  const body=String(req.body.body||'').trim();
+  if(!Number.isSafeInteger(id)||id<1)return res.status(400).json({error:{message:'Mídia inválida.'}});
+  if(!body||body.length>5000)return res.status(400).json({error:{message:'O comentário deve ter entre 1 e 5000 caracteres.'}});
+  try {
+    const record=await mediaForUser(id,req.user.id_usuario);
+    if(!record)return res.status(404).json({error:{message:'Lembrança não encontrada ou sem acesso.'}});
+    const result=await query('INSERT INTO comentario (conteudo,id_usuario,id_midia) VALUES ($1,$2,$3) RETURNING *',
+      [body,req.user.id_usuario,id]);
+    res.status(201).json({comment:publicComment({...result.rows[0],nome:req.user.nome,email:req.user.email})});
+  }catch(err){next(err)}
+});
+
+async function editableComment(commentId,userId) {
+  const result=await query(
+    `SELECT c.*,g.id_admin,pg.permissao AS group_permission
+     FROM comentario c
+     JOIN midia m ON m.id_midia=c.id_midia
+     JOIN subgrupo s ON s.id_subgrupo=m.id_subgrupo
+     JOIN grupo g ON g.id_grupo=s.id_grupo
+     JOIN participante_grupo pg ON pg.id_grupo=g.id_grupo AND pg.id_usuario=$2
+     WHERE c.id_comentario=$1`,[commentId,userId]
+  );
+  return result.rows[0] || null;
+}
+function canManageComment(record,userId) {
+  return Number(record.id_usuario)===Number(userId) ||
+    record.group_permission==='admin' || Number(record.id_admin)===Number(userId);
+}
+
+router.patch('/api/media/comments/:id',authenticate,async(req,res,next)=>{
+  const id=Number(req.params.id), body=String(req.body.body||'').trim();
+  if(!Number.isSafeInteger(id)||id<1)return res.status(400).json({error:{message:'Comentário inválido.'}});
+  if(!body||body.length>5000)return res.status(400).json({error:{message:'O comentário deve ter entre 1 e 5000 caracteres.'}});
+  try {
+    const record=await editableComment(id,req.user.id_usuario);
+    if(!record)return res.status(404).json({error:{message:'Comentário não encontrado.'}});
+    if(!canManageComment(record,req.user.id_usuario))return res.status(403).json({error:{message:'Você não pode editar este comentário.'}});
+    await query('UPDATE comentario SET conteudo=$1 WHERE id_comentario=$2',[body,id]);
+    res.json({message:'Comentário atualizado.'});
+  }catch(err){next(err)}
+});
+
+router.delete('/api/media/comments/:id',authenticate,async(req,res,next)=>{
+  const id=Number(req.params.id);
+  if(!Number.isSafeInteger(id)||id<1)return res.status(400).json({error:{message:'Comentário inválido.'}});
+  try {
+    const record=await editableComment(id,req.user.id_usuario);
+    if(!record)return res.status(404).json({error:{message:'Comentário não encontrado.'}});
+    if(!canManageComment(record,req.user.id_usuario))return res.status(403).json({error:{message:'Você não pode excluir este comentário.'}});
+    await query('DELETE FROM comentario WHERE id_comentario=$1',[id]);
+    res.status(204).end();
+  }catch(err){next(err)}
 });
 
 module.exports = router;
