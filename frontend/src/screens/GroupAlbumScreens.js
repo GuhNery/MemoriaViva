@@ -185,6 +185,8 @@ function dateLabel(date) {
 }
 
 export function AlbumSequence({ album, onBack, onAddMemory, onOpenMemory }) {
+  // Sem setas entre cartões: o eixo contínuo com marcos numerados indica a
+  // sequência. Registros sem data ficam no fim, sem inventar sua posição.
   const [oldestFirst, setOldestFirst] = useState(true);
   const [searchOpen, setSearchOpen] = useState(false);
   const [term, setTerm] = useState("");
@@ -192,15 +194,25 @@ export function AlbumSequence({ album, onBack, onAddMemory, onOpenMemory }) {
   const items = useMemo(() => {
     const arr = [...(album?.media || [])];
     arr.sort((a, b) => {
-      if (!a.memoryDate && !b.memoryDate) return String(a.createdAt || "").localeCompare(String(b.createdAt || ""));
+      if (!a.memoryDate && !b.memoryDate) {
+        const order = String(a.createdAt || "").localeCompare(String(b.createdAt || ""));
+        return oldestFirst ? order : -order;
+      }
       if (!a.memoryDate) return 1;
       if (!b.memoryDate) return -1;
       const delta = String(a.memoryDate).localeCompare(String(b.memoryDate));
-      return oldestFirst ? delta : -delta;
+      if (delta) return oldestFirst ? delta : -delta;
+      const uploaded = String(a.createdAt || "").localeCompare(String(b.createdAt || ""));
+      return oldestFirst ? uploaded : -uploaded;
     });
-    return arr.filter((m) => [m.title,m.place,m.story].filter(Boolean)
-      .some((v) => String(v).toLocaleLowerCase("pt-BR").includes(term.toLocaleLowerCase("pt-BR"))));
+    const lookup = term.trim().toLocaleLowerCase("pt-BR");
+    return lookup
+      ? arr.filter((item) => [item.title, item.place, item.story].filter(Boolean)
+        .some((value) => String(value).toLocaleLowerCase("pt-BR").includes(lookup)))
+      : arr;
   }, [album?.media, oldestFirst, term]);
+
+  const orderText = oldestFirst ? "Mais antigas primeiro" : "Mais recentes primeiro";
 
   return (
     <Screen>
@@ -212,25 +224,42 @@ export function AlbumSequence({ album, onBack, onAddMemory, onOpenMemory }) {
           { name: "search", label: "Buscar lembranças no álbum", onPress: () => setSearchOpen((v) => !v) },
         ]}
       />
+
       {!!album.coverUrl && (
         <Image source={{ uri: assetUrl(album.coverUrl) }}
-          style={{ width: "100%", height: 150, borderRadius: 14, marginBottom: 20 }}
+          style={{ width: "100%", height: 155, borderRadius: 14, marginBottom: 20 }}
           resizeMode="cover" />
       )}
-      <View style={S.headingRow}>
-        <Text style={[S.heading, { fontSize: 17 }]}>Sequência de lembranças</Text>
+
+      <Text style={[S.heading, { fontSize: 20, marginBottom: 8 }]}>Linha do tempo</Text>
+      <Text style={[S.emptyBody, { textAlign: "left", marginBottom: 16 }]}>
+        Cada lembrança aparece na data em que aconteceu, não na data do envio.
+      </Text>
+
+      <View style={{
+        flexDirection: "row", justifyContent: "space-between", alignItems: "center",
+        gap: 10, marginBottom: 23, paddingVertical: 10, paddingHorizontal: 12,
+        borderRadius: 12, backgroundColor: "#f6f4fa",
+      }}>
+        <View style={{ flexDirection: "row", alignItems: "center", gap: 6 }}>
+          <Icon name="clock" size={16} color="#6c6387" />
+          <Text style={{ color: "#5e5672", fontSize: 12, fontWeight: "600" }}>
+            {items.length} {items.length === 1 ? "lembrança" : "lembranças"}
+          </Text>
+        </View>
         <Pressable
           onPress={() => setOldestFirst((v) => !v)}
           accessibilityRole="button"
-          accessibilityLabel="Inverter ordem cronológica"
-          style={{ minHeight: 40, flexDirection: "row", alignItems: "center", gap: 5 }}
+          accessibilityLabel={"Alterar ordem. Atual: " + orderText}
+          style={{ flexDirection: "row", alignItems: "center", gap: 6, minHeight: 42 }}
         >
-          <Icon name="repeat" size={15} color="#626078" />
-          <Text style={[S.memoryMeta, { color: "#58546d" }]}>
-            {oldestFirst ? "Mais antigas primeiro" : "Mais recentes primeiro"}
+          <Icon name="repeat" size={17} color="#4b455d" />
+          <Text style={{ color: "#464153", fontSize: 11, fontWeight: "700", textAlign: "right" }}>
+            {orderText}
           </Text>
         </Pressable>
       </View>
+
       {searchOpen && (
         <View style={S.searchField}>
           <Icon name="search" size={18} color="#858391" />
@@ -243,56 +272,129 @@ export function AlbumSequence({ album, onBack, onAddMemory, onOpenMemory }) {
           />
         </View>
       )}
-      <View style={{ paddingHorizontal: 7, paddingBottom: 65 }}>
-        {items.map((media, index) => (
+
+      {items.length > 0 && (
+        <View style={{ marginBottom: 17, flexDirection: "row", alignItems: "center", gap: 10 }}>
+          <View style={{ width: 38, alignItems: "center" }}>
+            <View style={{ width: 9, height: 9, borderRadius: 5, backgroundColor: "#766b97" }} />
+          </View>
+          <Text style={{ color: "#777084", fontSize: 11, fontWeight: "700", letterSpacing: 0.8 }}>
+            INÍCIO DA SEQUÊNCIA
+          </Text>
+        </View>
+      )}
+
+      {items.map((media, index) => {
+        const last = index === items.length - 1;
+        const year = media.memoryDate ? String(media.memoryDate).slice(0, 4) : "Data não informada";
+        const previous = index ? items[index - 1] : null;
+        const previousYear = previous?.memoryDate ? String(previous.memoryDate).slice(0, 4) : "Data não informada";
+        return (
           <View key={String(media.id)}>
-            <View style={{ flexDirection: "row", justifyContent: index % 2 ? "flex-end" : "flex-start" }}>
+            {(index === 0 || year !== previousYear) && (
+              <View style={{ flexDirection: "row", alignItems: "center", gap: 11, marginBottom: 12 }}>
+                <View style={{ width: 38, alignItems: "center" }}>
+                  <View style={{ width: 2, height: 17, backgroundColor: "#c9c1d7" }} />
+                </View>
+                <Text style={{ color: "#766b90", fontSize: 13, fontWeight: "700" }}>
+                  {year}
+                </Text>
+              </View>
+            )}
+
+            <View style={{ flexDirection: "row", alignItems: "stretch", gap: 11 }}>
+              <View style={{ width: 38, alignItems: "center" }}>
+                <View style={{
+                  width: 30, height: 30, borderRadius: 15,
+                  backgroundColor: "#22212d", justifyContent: "center", alignItems: "center",
+                  zIndex: 1,
+                }}>
+                  <Text style={{ color: "#fff", fontWeight: "800", fontSize: 11 }}>{index + 1}</Text>
+                </View>
+                <View style={{
+                  flex: 1, minHeight: 19,
+                  width: 2, backgroundColor: last ? "transparent" : "#c9c1d7",
+                }} />
+              </View>
               <Pressable
                 onPress={() => onOpenMemory(media)}
                 accessibilityRole="button"
-                accessibilityLabel={"Abrir lembrança " + (media.title || "sem título")}
+                accessibilityLabel={`Lembrança ${index + 1} de ${items.length}, ${media.title || "sem título"}, ${dateLabel(media.memoryDate)}`}
                 style={({ pressed }) => [{
-                  width: "52%", borderRadius: 13, padding: 8,
-                  backgroundColor: "#fff", borderWidth: 1, borderColor: "#e8e8ec",
-                  elevation: 2, opacity: pressed ? 0.7 : 1,
+                  flex: 1, minWidth: 0, marginBottom: last ? 3 : 19,
+                  padding: 12, borderRadius: 15, borderWidth: 1, borderColor: "#eae8ee",
+                  backgroundColor: "#fff", elevation: 2, opacity: pressed ? 0.68 : 1,
                 }]}
               >
-                <View style={{ minHeight: 24, flexDirection: "row", justifyContent: "space-between", gap: 5 }}>
-                  <Text style={{ fontSize: 12, color: BASE, fontWeight: "700", flex: 1 }} numberOfLines={1}>
-                    {media.title || "Lembrança"}
-                  </Text>
-                  <Icon name="chevron-right" size={16} color="#55545e" />
-                </View>
+                <Text style={{ color: "#5c5473", fontSize: 11, fontWeight: "700", marginBottom: 6 }}>
+                  {dateLabel(media.memoryDate)}
+                </Text>
+                <Text numberOfLines={2} style={{ color: BASE, fontSize: 15, fontWeight: "800", marginBottom: 11 }}>
+                  {media.title || "Lembrança"}
+                </Text>
                 <View style={{
-                  height: 118, backgroundColor: "#f2f1f4", borderRadius: 9,
-                  alignItems: "center", justifyContent: "center", overflow: "hidden",
+                  minHeight: 145, backgroundColor: "#f2f0f5",
+                  borderRadius: 10, alignItems: "center", justifyContent: "center", overflow: "hidden",
                 }}>
                   {media.type === "image" ? (
                     <Image source={{ uri: assetUrl(media.url) }}
-                      style={{ width: "100%", height: "100%" }} resizeMode="cover" />
-                  ) : <Icon name={media.type === "video" ? "film" : media.type === "audio" ? "headphones" : "file"} size={30} color="#888591" />}
+                      style={{ width: "100%", height: 155 }} resizeMode="cover" />
+                  ) : (
+                    <View style={{ alignItems: "center", gap: 7, padding: 18 }}>
+                      <Icon name={media.type === "video" ? "film" : media.type === "audio" ? "headphones" : "file"} size={31} color="#6e6686" />
+                      <Text style={{ color: "#686075", fontSize: 12 }}>
+                        {media.type === "video" ? "Vídeo" : media.type === "audio" ? "Áudio" : "Arquivo"}
+                      </Text>
+                    </View>
+                  )}
                 </View>
-                <Text style={{ color: "#777580", fontSize: 11, marginTop: 8 }}>
-                  {dateLabel(media.memoryDate)}
-                </Text>
+                <View style={{ flexDirection: "row", alignItems: "center", marginTop: 11, gap: 7 }}>
+                  {!!media.place && (
+                    <>
+                      <Icon name="map-pin" size={12} color="#7e7887" />
+                      <Text numberOfLines={1} style={{ color: "#7e7887", fontSize: 11, flex: 1 }}>
+                        {media.place}
+                      </Text>
+                    </>
+                  )}
+                  <Icon name="chevron-right" size={17} color="#555068" />
+                </View>
               </Pressable>
             </View>
-            {index < items.length - 1 && (
-              <View style={{ alignItems: index % 2 ? "flex-end" : "flex-start", paddingHorizontal: "27%", height: 56 }}>
-                <View style={{ height: 40, borderLeftWidth: 1.5, borderStyle: "dashed", borderLeftColor: "#a7a4ad" }} />
-                <Icon name="arrow-down" size={17} color="#918e9a" />
-              </View>
-            )}
           </View>
-        ))}
-        {!items.length && (
-          <View style={S.empty}>
-            <Icon name="image" size={35} color="#888591" />
-            <Text style={S.emptyTitle}>{term ? "Nenhuma lembrança encontrada" : "Este álbum está vazio"}</Text>
-            <Text style={S.emptyBody}>Adicione fotos, vídeos ou áudios. Eles aparecerão em ordem cronológica.</Text>
+        );
+      })}
+
+      {items.length ? (
+        <View style={{ flexDirection: "row", gap: 10, alignItems: "center", marginTop: 8, marginBottom: 18 }}>
+          <View style={{ width: 38, alignItems: "center" }}>
+            <View style={{ width: 9, height: 9, borderRadius: 5, backgroundColor: "#766b97" }} />
           </View>
-        )}
-      </View>
+          <Text style={{ color: "#777084", fontSize: 11, fontWeight: "700", letterSpacing: 0.8 }}>
+            FIM DA SEQUÊNCIA
+          </Text>
+        </View>
+      ) : (
+        <View style={S.empty}>
+          <Icon name="image" size={35} color="#888591" />
+          <Text style={S.emptyTitle}>
+            {term ? "Nenhuma lembrança encontrada" : "Este álbum está vazio"}
+          </Text>
+          <Text style={S.emptyBody}>
+            Suas fotos, vídeos e áudios aparecerão aqui, com a data escolhida para cada lembrança.
+          </Text>
+          {!term && (
+            <Pressable
+              onPress={onAddMemory}
+              accessibilityRole="button"
+              style={[S.actionButton, { marginTop: 12 }]}
+            >
+              <Icon name="plus" size={17} color="#fff" />
+              <Text style={S.actionLabel}>Adicionar primeira lembrança</Text>
+            </Pressable>
+          )}
+        </View>
+      )}
     </Screen>
   );
 }
