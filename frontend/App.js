@@ -12,6 +12,7 @@ import { Welcome, Auth } from "./src/screens/Onboarding";
 
 import { ChapterDetail } from "./src/screens/Memories";
 import { AlbumList, AlbumForm } from "./src/screens/AlbumScreens";
+import { MemoryTimeline } from "./src/screens/MemoryTimeline";
 
 import {
   Members,
@@ -416,6 +417,7 @@ export default function App() {
           chapters={chapters}
           onOpenChapter={openChapter}
           onShowTimeline={() => setScreen("timeline")}
+          onShowMemories={() => setScreen("memories")}
           onCreateAlbum={() => setScreen("newChapter")}
           canManage={currentUserIsAdmin}
           onCreateGroup={() => openCreateFamily("home")}
@@ -456,6 +458,16 @@ export default function App() {
           onBack={() => setScreen("home")}
           onAdd={() => setScreen("newChapter")}
           canManage={currentUserIsAdmin}
+        />
+      );
+      break;
+
+    case "memories":
+      content = (
+        <MemoryTimeline
+          chapters={chapters}
+          onOpen={openChapter}
+          onBack={() => setScreen("home")}
         />
       );
       break;
@@ -512,6 +524,7 @@ export default function App() {
           chapters={chapters}
           onOpenChapter={openChapter}
           onShowTimeline={() => setScreen("timeline")}
+          onShowMemories={() => setScreen("memories")}
           onCreateAlbum={() => setScreen("newChapter")}
           canManage={currentUserIsAdmin}
           onCreateGroup={() => openCreateFamily("home")}
