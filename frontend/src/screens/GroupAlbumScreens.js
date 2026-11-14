@@ -208,7 +208,7 @@ export function AlbumSequence({ album, onBack, onAddMemory, onOpenMemory }) {
         title={album.title}
         onBack={onBack}
         actions={[
-          { name: "repeat", label: "Inverter ordem cronológica", onPress: () => setOldestFirst((v) => !v) },
+          { name: "plus-circle", label: "Adicionar memória ao álbum", onPress: onAddMemory },
           { name: "search", label: "Buscar lembranças no álbum", onPress: () => setSearchOpen((v) => !v) },
         ]}
       />
@@ -219,7 +219,17 @@ export function AlbumSequence({ album, onBack, onAddMemory, onOpenMemory }) {
       )}
       <View style={S.headingRow}>
         <Text style={[S.heading, { fontSize: 17 }]}>Sequência de lembranças</Text>
-        <Text style={S.memoryMeta}>{oldestFirst ? "Antigas primeiro" : "Recentes primeiro"}</Text>
+        <Pressable
+          onPress={() => setOldestFirst((v) => !v)}
+          accessibilityRole="button"
+          accessibilityLabel="Inverter ordem cronológica"
+          style={{ minHeight: 40, flexDirection: "row", alignItems: "center", gap: 5 }}
+        >
+          <Icon name="repeat" size={15} color="#626078" />
+          <Text style={[S.memoryMeta, { color: "#58546d" }]}>
+            {oldestFirst ? "Mais antigas primeiro" : "Mais recentes primeiro"}
+          </Text>
+        </Pressable>
       </View>
       {searchOpen && (
         <View style={S.searchField}>
@@ -283,19 +293,6 @@ export function AlbumSequence({ album, onBack, onAddMemory, onOpenMemory }) {
           </View>
         )}
       </View>
-      <Pressable
-        onPress={onAddMemory}
-        accessibilityRole="button"
-        accessibilityLabel="Adicionar nova lembrança ao álbum"
-        style={({ pressed }) => [{
-          position: "absolute", bottom: 15, right: 19,
-          width: 58, height: 58, borderRadius: 30, backgroundColor: BASE,
-          justifyContent: "center", alignItems: "center",
-          elevation: 6, opacity: pressed ? 0.7 : 1,
-        }]}
-      >
-        <Icon name="plus" size={27} color="#fff" />
-      </Pressable>
     </Screen>
   );
 }
