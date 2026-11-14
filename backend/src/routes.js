@@ -184,13 +184,7 @@ router.post('/api/auth/register', async (req, res, next) => {
       [name, email, hash],
     );
     const user = inserted.rows[0];
-    const invitations = await client.query("SELECT id_convite,id_grupo FROM convite_grupo WHERE LOWER(email)=LOWER($1) AND status='pending'", [email]);
-    for (const invite of invitations.rows) {
-      await client.query(
-        `INSERT INTO participante_grupo (id_usuario,id_grupo,permissao)
-         VALUES ($1,$2,'member') ON CONFLICT (id_usuario,id_grupo) DO NOTHING`, [user.id_usuario, invite.id_grupo]);
-      await client.query("UPDATE convite_grupo SET status='accepted' WHERE id_convite=$1", [invite.id_convite]);
-    }
+    // Convites são aceitos explicitamente pelo usuário, nunca durante o cadastro.
     await client.query('COMMIT');
     res.status(201).json({ token: signToken(user), user: publicUser(user), families: await listFamiliesForUser(user.id_usuario) });
   } catch (err) {
@@ -369,23 +363,102 @@ router.patch('/api/families/:id', authenticate, requireFamilyMember, async (req,
   } catch (err) { next(err); }
 });
 
+// Convites privados: criar pendência não concede acesso ao grupo.
 router.post('/api/families/:familyId/members/invite', authenticate, requireFamilyMember, async (req, res, next) => {
-  if (req.familyPermission !== 'admin' && Number(req.familyAdminId) !== Number(req.user.id_usuario)) return res.status(403).json({ error: { message: 'Somente administradores podem convidar pessoas.' } });
+  if (req.familyPermission !== 'admin' && Number(req.familyAdminId) !== Number(req.user.id_usuario)) {
+    return res.status(403).json({ error: { message: 'Somente administradores podem convidar pessoas.' } });
+  }
   const email = String(req.body.email || '').trim().toLowerCase();
-  if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) return res.status(400).json({ error: { message: 'Informe um e-mail válido.' } });
+  if (!/^[^\\s@]+@[^\\s@]+\\.[^\\s@]+$/.test(email) || email.length > 150) {
+    return res.status(400).json({ error: { message: 'Informe um e-mail válido.' } });
+  }
+  if (email === String(req.user.email).toLowerCase()) {
+    return res.status(400).json({ error: { message: 'Você já participa deste grupo.' } });
+  }
   try {
-    const existing = await query('SELECT id_usuario FROM usuario WHERE LOWER(email)=LOWER($1)', [email]);
-    if (existing.rowCount) {
-      await query("INSERT INTO participante_grupo (id_usuario,id_grupo,permissao) VALUES ($1,$2,'member') ON CONFLICT (id_usuario,id_grupo) DO NOTHING", [existing.rows[0].id_usuario, req.familyId]);
-      return res.json({ message: 'Pessoa adicionada à família.' });
+    const alreadyMember = await query(
+      `SELECT 1 FROM participante_grupo pg JOIN usuario u ON u.id_usuario=pg.id_usuario
+       WHERE pg.id_grupo=$1 AND LOWER(u.email)=LOWER($2)`, [req.familyId,email]
+    );
+    if (alreadyMember.rowCount) {
+      return res.status(409).json({ error: { message: 'Esta pessoa já participa do grupo.' } });
     }
     await query(
       `INSERT INTO convite_grupo (email,id_grupo,id_convidante,status) VALUES ($1,$2,$3,'pending')
-       ON CONFLICT (email,id_grupo) DO UPDATE SET id_convidante=EXCLUDED.id_convidante,status='pending',data_criacao=CURRENT_TIMESTAMP`,
-      [email, req.familyId, req.user.id_usuario],
+       ON CONFLICT (email,id_grupo) DO UPDATE
+       SET id_convidante=EXCLUDED.id_convidante,status='pending',data_criacao=CURRENT_TIMESTAMP`,
+      [email,req.familyId,req.user.id_usuario]
     );
-    res.status(201).json({ message: 'Convite registrado. A pessoa será vinculada à família quando criar uma conta com esse e-mail.' });
+    res.status(201).json({
+      message: 'Convite registrado. A pessoa poderá aceitá-lo em Meus grupos ao entrar com esse e-mail. O envio externo de e-mail ainda não está habilitado.'
+    });
   } catch (err) { next(err); }
+});
+
+// Convites só são exibidos ao titular autenticado do endereço de e-mail.
+router.get('/api/invitations', authenticate, async (req, res, next) => {
+  try {
+    const result = await query(
+      `SELECT c.id_convite, c.data_criacao, g.id_grupo, g.nome
+       FROM convite_grupo c
+       JOIN grupo g ON g.id_grupo=c.id_grupo
+       WHERE LOWER(c.email)=LOWER($1) AND c.status='pending'
+       ORDER BY c.data_criacao DESC`, [req.user.email]
+    );
+    res.json({ invitations: result.rows.map((row) => ({
+      id: asId(row.id_convite),
+      groupId: asId(row.id_grupo),
+      groupName: row.nome,
+      createdAt: row.data_criacao,
+    })) });
+  } catch (err) { next(err); }
+});
+
+router.post('/api/invitations/:id/accept', authenticate, async (req, res, next) => {
+  const invitationId = Number(req.params.id);
+  if (!Number.isInteger(invitationId) || invitationId < 1) {
+    return res.status(400).json({ error: { message: 'Convite inválido.' } });
+  }
+  const client = await pool.connect();
+  try {
+    await client.query('BEGIN');
+    const result = await client.query(
+      `SELECT id_convite, id_grupo, email FROM convite_grupo
+       WHERE id_convite=$1 AND status='pending' FOR UPDATE`, [invitationId]
+    );
+    if (!result.rowCount || result.rows[0].email.toLowerCase() !== String(req.user.email).toLowerCase()) {
+      await client.query('ROLLBACK');
+      return res.status(404).json({ error: { message: 'Convite não encontrado ou já resolvido.' } });
+    }
+    const groupId=result.rows[0].id_grupo;
+    await client.query(
+      `INSERT INTO participante_grupo (id_usuario,id_grupo,permissao)
+       VALUES ($1,$2,'member') ON CONFLICT (id_usuario,id_grupo) DO NOTHING`,
+      [req.user.id_usuario,groupId]
+    );
+    await client.query("UPDATE convite_grupo SET status='accepted' WHERE id_convite=$1",[invitationId]);
+    await client.query('COMMIT');
+    res.json({ message: 'Convite aceito.', groupId: asId(groupId) });
+  } catch(err) {
+    await client.query('ROLLBACK').catch(()=>{});
+    next(err);
+  } finally { client.release(); }
+});
+
+router.post('/api/invitations/:id/decline', authenticate, async (req, res, next) => {
+  const invitationId=Number(req.params.id);
+  if (!Number.isInteger(invitationId) || invitationId < 1) {
+    return res.status(400).json({ error: { message: 'Convite inválido.' } });
+  }
+  try {
+    const result=await query(
+      `UPDATE convite_grupo SET status='cancelled'
+       WHERE id_convite=$1 AND LOWER(email)=LOWER($2) AND status='pending'
+       RETURNING id_convite`,[invitationId,req.user.email]
+    );
+    if (!result.rowCount) return res.status(404).json({ error: { message: 'Convite não encontrado ou já resolvido.' } });
+    res.json({ message: 'Convite recusado.' });
+  } catch(err) { next(err); }
 });
 
 // Chapters/subgroups
