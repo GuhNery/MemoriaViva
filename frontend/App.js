@@ -33,6 +33,7 @@ export default function App() {
   const [selectedAlbum, setSelectedAlbum] = useState(null);
   const [selectedMediaId, setSelectedMediaId] = useState(null);
   const [recentMemories, setRecentMemories] = useState([]);
+  const [homeStats, setHomeStats] = useState(null);
   const [invitations, setInvitations] = useState([]);
   const [invitationBusyId, setInvitationBusyId] = useState(null);
   const [invitationsError, setInvitationsError] = useState("");
@@ -117,15 +118,21 @@ export default function App() {
       .then((results) => {
         if (!live) return;
         const memories = [];
+        let albumsCount = 0;
         for (const item of results) {
           if (item.status !== "fulfilled") continue;
           const payload = item.value;
+          albumsCount += (payload.chapters || []).length;
           for (const album of payload.chapters || []) {
             for (const media of album.media || []) {
               memories.push({ group: payload.family, album, media });
             }
           }
         }
+        setHomeStats({
+          groups: groups.length, albums: albumsCount, memories: memories.length,
+          partial: results.some((item) => item.status !== "fulfilled"),
+        });
         // "Últimas" = adicionadas recentemente, sem inventar histórico de visitas.
         memories.sort((a, b) =>
           String(b.media.createdAt || "").localeCompare(String(a.media.createdAt || ""))
@@ -154,6 +161,7 @@ export default function App() {
     setSelectedAlbum(null);
     setSelectedMediaId(null);
     setRecentMemories([]);
+    setHomeStats(null);
     setInvitations([]);
     setScreen("welcome");
     setAuthMode("login");
@@ -213,6 +221,38 @@ export default function App() {
     } catch (e) {
       showMessage("Erro ao abrir memória", e.message || "Não foi possível abrir a lembrança.");
     }
+  };
+
+  // Exclui somente após a confirmação de nome digitada na interface.
+  const deleteGroup = async (confirmName) => {
+    if (!group?.id) throw new Error("Nenhum grupo selecionado.");
+    const id = group.id;
+    await api(`/api/families/${id}`, token, {
+      method: "DELETE",
+      body: JSON.stringify({ confirmed: true, confirmName }),
+    });
+    setGroups((current) => current.filter((item) => String(item.id) !== String(id)));
+    setGroup(null);
+    setMembers([]);
+    setAlbums([]);
+    setSelectedAlbum(null);
+    setSelectedMediaId(null);
+    setRefreshVersion((v) => v + 1);
+    setScreen("groups");
+  };
+
+  const deleteAlbum = async (confirmName) => {
+    if (!selectedAlbum?.id || !group?.id) throw new Error("Álbum não selecionado.");
+    const id = selectedAlbum.id;
+    await api(`/api/chapters/${id}`, token, {
+      method: "DELETE",
+      body: JSON.stringify({ confirmed: true, confirmName }),
+    });
+    setAlbums((current) => current.filter((item) => String(item.id) !== String(id)));
+    setSelectedAlbum(null);
+    setSelectedMediaId(null);
+    setRefreshVersion((v) => v + 1);
+    setScreen("group");
   };
 
   const saveAlbum = async () => {
@@ -314,6 +354,7 @@ export default function App() {
       existing={screen === "editAlbum" ? selectedAlbum : null}
       onSaved={saveAlbum}
       onBack={() => setScreen("group")}
+      onDeleteAlbum={screen === "editAlbum" ? deleteAlbum : undefined}
     />;
   }
 
@@ -380,6 +421,9 @@ export default function App() {
       onFamilyUpdated={updateGroup}
       onBack={() => setScreen(settingsReturn)}
       onManageMembers={() => openMembers("settings")}
+      onDeleteGroup={deleteGroup}
+      memberCount={members.length}
+      albums={albums}
     />;
   }
 
@@ -410,6 +454,7 @@ export default function App() {
       user={user}
       families={groups}
       recentMemories={recentMemories}
+      stats={homeStats}
       invitationsCount={invitations.length}
       onOpenGroup={openGroup}
       onOpenMedia={openMediaFromHome}
