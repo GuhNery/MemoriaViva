@@ -345,7 +345,7 @@ export function Profile({
       <View style={styles.card}>
         <Text style={styles.eyebrow}>SEU ESPAÇO</Text>
         <Text style={[styles.sectionTitleSmall, { marginBottom: 12 }]}>
-          {family?.name || "Minha família"}
+          {family?.name || "Nenhum grupo selecionado"}
         </Text>
 
         <Text style={styles.formIntro}>
