@@ -44,6 +44,7 @@ const publicUser = (u) => ({
   id: asId(u.id_usuario),
   name: u.nome,
   email: u.email,
+  age: u.idade ?? null,
   photoUrl: u.foto_perfil ? signedFileUrl('avatar', u.id_usuario, u.id_usuario) : null,
   createdAt: u.data_criacao,
 });
@@ -292,6 +293,11 @@ router.post('/api/auth/logout', authenticate, (_req, res) => res.status(204).end
 router.patch('/api/auth/profile', authenticate, async (req, res, next) => {
   const name = String(req.body.name || '').trim();
   const email = String(req.body.email || '').trim().toLowerCase();
+  const age = req.body.age === null || req.body.age === undefined || req.body.age === ''
+    ? null : Number(req.body.age);
+  if (age !== null && (!Number.isInteger(age) || age < 0 || age > 120)) {
+    return res.status(400).json({ error: { message: 'A idade deve estar entre 0 e 120 anos.' } });
+  }
 
   if (name.length < 2 || name.length > 100) {
     return res.status(400).json({
@@ -323,10 +329,10 @@ router.patch('/api/auth/profile', authenticate, async (req, res, next) => {
 
     const result = await query(
       `UPDATE usuario
-       SET nome = $1, email = $2
-       WHERE id_usuario = $3
-       RETURNING id_usuario, nome, email, foto_perfil, data_criacao`,
-      [name, email, req.user.id_usuario],
+       SET nome = $1, email = $2, idade = $3
+       WHERE id_usuario = $4
+       RETURNING id_usuario, nome, email, idade, foto_perfil, data_criacao`,
+      [name, email, age, req.user.id_usuario],
     );
 
     if (!result.rowCount) {
