@@ -38,7 +38,8 @@ export default function App() {
   const [invitations, setInvitations] = useState([]);
   const [invitationBusyId, setInvitationBusyId] = useState(null);
   const [invitationsError, setInvitationsError] = useState("");
-  const [groupBack, setGroupBack] = useState("groups");
+  const [returnFromSettings, setReturnFromSettings] = useState("groups");
+  const [returnFromMembers, setReturnFromMembers] = useState("groups");
 
   const refreshFamily = async (
     familyId = family?.id,
@@ -273,12 +274,12 @@ export default function App() {
   };
 
   const openGroupSettings = (returnTo = "groups") => {
-    setGroupBack(returnTo);
+    setReturnFromSettings(returnTo);
     setScreen("settings");
   };
 
   const openGroupMembers = (returnTo = "groups") => {
-    setGroupBack(returnTo);
+    setReturnFromMembers(returnTo);
     setScreen("members");
   };
 
@@ -423,6 +424,7 @@ export default function App() {
           onCreateGroup={() => openCreateFamily("home")}
           searchMode={screen === "search"}
           onShowGroups={() => setScreen("groups")}
+          invitationCount={invitations.length}
         />
       );
       break;
@@ -468,7 +470,7 @@ export default function App() {
           token={token}
           members={members}
           onRefresh={() => refreshFamily()}
-          onBack={() => setScreen(groupBack)}
+          onBack={() => setScreen(returnFromMembers)}
           isAdmin={currentUserIsAdmin}
         />
       );
@@ -499,7 +501,7 @@ export default function App() {
               String(item.id) === String(updated.id) ? updated : item
             ));
           }}
-          onBack={() => setScreen(groupBack)}
+          onBack={() => setScreen(returnFromSettings)}
           onManageMembers={() => openGroupMembers("settings")}
           isAdmin={currentUserIsAdmin}
         />
@@ -527,6 +529,7 @@ export default function App() {
       screen={screen}
       setScreen={setScreen}
       onLogout={logout}
+      onOpenSettings={() => openGroupSettings(screen === "groups" ? "groups" : screen === "profile" ? "profile" : "home")}
       onAdd={() => setScreen("newChapter")}
     >
       {content}
