@@ -424,6 +424,70 @@ router.patch('/api/families/:id', authenticate, requireFamilyMember, async (req,
   } catch (err) { next(err); }
 });
 
+// O administrador escolhe o destino das mídias antes de retirar alguém do grupo.
+router.delete('/api/families/:familyId/members/:userId', authenticate, requireFamilyMember, async (req, res, next) => {
+  if (req.familyPermission !== 'admin' && Number(req.familyAdminId) !== Number(req.user.id_usuario)) {
+    return res.status(403).json({ error: { message: 'Somente administradores podem remover integrantes.' } });
+  }
+  const targetId=Number(req.params.userId);
+  const deleteMedia=req.body?.deleteMedia === true;
+  if(!Number.isSafeInteger(targetId)||targetId<1) {
+    return res.status(400).json({error:{message:'Integrante inválido.'}});
+  }
+  if(targetId===Number(req.familyAdminId)||targetId===Number(req.user.id_usuario)) {
+    return res.status(403).json({error:{message:'O administrador não pode remover sua própria conta do grupo.'}});
+  }
+  const client=await pool.connect();
+  try {
+    await client.query('BEGIN');
+    const member=await client.query(
+      `SELECT permissao FROM participante_grupo WHERE id_grupo=$1 AND id_usuario=$2 FOR UPDATE`,
+      [req.familyId,targetId]
+    );
+    if(!member.rowCount) {
+      await client.query('ROLLBACK');
+      return res.status(404).json({error:{message:'Participante não encontrado no grupo.'}});
+    }
+    if(member.rows[0].permissao==='admin') {
+      await client.query('ROLLBACK');
+      return res.status(403).json({error:{message:'Não é possível remover outro administrador.'}});
+    }
+    let files=[];
+    if(deleteMedia) {
+      const existing=await client.query(
+        `SELECT m.arquivo FROM midia m JOIN subgrupo s ON s.id_subgrupo=m.id_subgrupo
+         WHERE s.id_grupo=$1 AND m.id_usuario=$2`,[req.familyId,targetId]
+      );
+      files=existing.rows.map(row=>row.arquivo);
+      await client.query(
+        `DELETE FROM midia m USING subgrupo s
+         WHERE m.id_subgrupo=s.id_subgrupo AND s.id_grupo=$1 AND m.id_usuario=$2`,
+        [req.familyId,targetId]
+      );
+    }
+    await client.query(
+      `DELETE FROM participante_subgrupo ps USING subgrupo s
+       WHERE ps.id_subgrupo=s.id_subgrupo AND s.id_grupo=$1 AND ps.id_usuario=$2`,
+      [req.familyId,targetId]
+    );
+    await client.query('DELETE FROM participante_grupo WHERE id_grupo=$1 AND id_usuario=$2',
+      [req.familyId,targetId]);
+    await client.query('COMMIT');
+    for(const file of files) {
+      if(file?.startsWith('/uploads/')) {
+        await fs.promises.unlink(path.join(uploadsDir,path.basename(file))).catch(()=>{});
+      }
+    }
+    res.json({message:deleteMedia?
+      'Participante removido. As mídias dele neste grupo foram excluídas.':
+      'Participante removido. As mídias dele foram preservadas neste grupo.'
+    });
+  }catch(err) {
+    await client.query('ROLLBACK').catch(()=>{});
+    next(err);
+  }finally { client.release(); }
+});
+
 // Convites privados: criar pendência não concede acesso ao grupo.
 router.post('/api/families/:familyId/members/invite', authenticate, requireFamilyMember, async (req, res, next) => {
   if (req.familyPermission !== 'admin' && Number(req.familyAdminId) !== Number(req.user.id_usuario)) {
