@@ -4,6 +4,7 @@ import { api, COLORS } from "../services/api";
 import { Screen, Icon } from "../components/ui";
 import S from "../theme/prototypeInternalStyles";
 import { CoverField, uploadCover } from "../components/CoverField";
+import { ConfirmDeletion } from "../components/ConfirmDeletion";
 
 function GoBack({ onBack, title }) {
   return (
@@ -96,13 +97,14 @@ export function AlbumList({ chapters = [], onOpen, onBack, onAdd, canManage = fa
   );
 }
 
-export function AlbumForm({ family, token, existing, onSaved, onBack }) {
+export function AlbumForm({ family, token, existing, onSaved, onBack, onDeleteAlbum }) {
   const [title, setTitle] = useState(existing?.title || "");
   const [description, setDescription] = useState(existing?.description || "");
   const [cover, setCover] = useState(null);
   const [savedAlbum, setSavedAlbum] = useState(null);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState("");
+  const [confirmingDelete, setConfirmingDelete] = useState(false);
 
   const save = async () => {
     const cleaned = title.trim();
@@ -215,6 +217,35 @@ export function AlbumForm({ family, token, existing, onSaved, onBack }) {
       >
         <Text style={S.secondaryLabel}>Cancelar</Text>
       </Pressable>
+      {existing && onDeleteAlbum && (
+        <View style={{ marginTop: 30, marginBottom: 15 }}>
+          <Text style={[S.heading, { fontSize: 17, marginBottom: 11 }]}>Excluir álbum</Text>
+          {!confirmingDelete ? (
+            <Pressable
+              onPress={() => setConfirmingDelete(true)}
+              disabled={loading}
+              accessibilityRole="button"
+              accessibilityLabel="Solicitar exclusão do álbum"
+              style={[S.secondaryButton, { borderColor: "#e3bbc4" }]}
+            >
+              <Icon name="trash-2" size={18} color="#a53b4e" />
+              <Text style={[S.secondaryLabel, { color: "#a53b4e" }]}>Excluir este álbum</Text>
+            </Pressable>
+          ) : (
+            <ConfirmDeletion
+              kind="álbum"
+              name={existing.title}
+              impact={[
+                `${existing.media?.length || 0} ${existing.media?.length === 1 ? "lembrança será excluída" : "lembranças serão excluídas"}`,
+                "Fotos, vídeos, áudios e comentários associados serão removidos.",
+                "O grupo e os demais álbuns continuarão existindo.",
+              ]}
+              onConfirm={onDeleteAlbum}
+              onCancel={() => setConfirmingDelete(false)}
+            />
+          )}
+        </View>
+      )}
     </Screen>
   );
 }
