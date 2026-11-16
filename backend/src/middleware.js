@@ -8,7 +8,7 @@ async function authenticate(req, res, next) {
   try {
     const payload = jwt.verify(token, process.env.JWT_SECRET);
     const result = await query(
-      'SELECT id_usuario, nome, email, foto_perfil, data_criacao FROM usuario WHERE id_usuario = $1',
+      'SELECT id_usuario, nome, email, idade, foto_perfil, data_criacao FROM usuario WHERE id_usuario = $1',
       [payload.sub],
     );
     if (!result.rowCount) return res.status(401).json({ error: { message: 'Sessão inválida. Entre novamente.' } });

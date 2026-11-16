@@ -1,425 +1,201 @@
 import React, { useState } from "react";
-import { Platform } from "react-native";
 import {
-  Alert,
-  Image,
-  Text,
-  TextInput,
-  View,
-  Pressable,
-  ActivityIndicator,
+  ActivityIndicator, Image, Platform, Pressable,
+  ScrollView, Text, TextInput, View,
 } from "react-native";
 import * as ImagePicker from "expo-image-picker";
+import { api, assetUrl, COLORS } from "../services/api";
+import { Icon } from "../components/ui";
+import { fileFormData } from "../components/CoverField";
+import S from "../theme/prototypeInternalStyles";
 
-import { api, COLORS, initials, assetUrl } from "../services/api";
-import styles from "../theme/styles";
-import { Screen, Button, Icon, Avatar } from "../components/ui";
+const inky = "#17191f";
 
-export function Profile({
-  user,
-  family,
-  members = [],
-  chapters = [],
-  token,
-  onUserUpdated,
-  onLogout,
-}) {
-  const [editing, setEditing] = useState(false);
-  const [name, setName] = useState(user?.name || user?.nome || "");
-  const [email, setEmail] = useState(user?.email || "");
-  const [saving, setSaving] = useState(false);
-  const [uploadingPhoto, setUploadingPhoto] = useState(false);
-
-  const displayName = user?.name || user?.nome || "Usuário";
-  const displayEmail = user?.email || "E-mail não informado";
-  const photoUrl = user?.photoUrl || user?.foto_perfil || null;
-
-  const confirmLogout = () => {
-    if (typeof onLogout === "function") {
-      onLogout();
-    }
-  };
-
-  const saveProfile = async () => {
-    if (name.trim().length < 2) {
-      Alert.alert("Nome inválido", "Informe seu nome completo.");
-      return;
-    }
-
-    if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email.trim())) {
-      Alert.alert("E-mail inválido", "Informe um endereço de e-mail válido.");
-      return;
-    }
-
-    try {
-      setSaving(true);
-
-      const result = await api("/api/auth/profile", token, {
-        method: "PATCH",
-        body: JSON.stringify({
-          name: name.trim(),
-          email: email.trim().toLowerCase(),
-        }),
-      });
-
-      onUserUpdated?.(result.user);
-      setName(result.user.name || "");
-      setEmail(result.user.email || "");
-      setEditing(false);
-
-      Alert.alert("Perfil atualizado", "Seus dados foram salvos.");
-    } catch (error) {
-      Alert.alert(
-        "Não foi possível salvar",
-        error.message || "Tente novamente.",
-      );
-    } finally {
-      setSaving(false);
-    }
-  };
-
-
-  const choosePhoto = async () => {
-    try {
-      const permission =
-        await ImagePicker.requestMediaLibraryPermissionsAsync();
-
-      if (!permission.granted) {
-        Alert.alert(
-          "Permissão necessária",
-          "Permita o acesso à galeria para escolher uma foto de perfil.",
-        );
-        return;
-      }
-
-      const result = await ImagePicker.launchImageLibraryAsync({
-        mediaTypes: ["images"],
-        allowsEditing: true,
-        aspect: [1, 1],
-        quality: 0.8,
-      });
-
-      if (result.canceled || !result.assets?.[0]) return;
-
-      const asset = result.assets[0];
-      const extension = asset.fileName?.split(".").pop()?.toLowerCase();
-
-      const mimeType =
-        asset.mimeType ||
-        (extension === "png"
-          ? "image/png"
-          : extension === "webp"
-            ? "image/webp"
-            : "image/jpeg");
-
-      const formData = new FormData();
-
-      if (Platform.OS === "web") {
-        // Na web, envia o arquivo real, não o objeto { uri, name, type }.
-        let file = asset.file;
-
-        if (!file) {
-          const imageResponse = await fetch(asset.uri);
-          file = await imageResponse.blob();
-        }
-
-        formData.append(
-          "file",
-          file,
-          asset.fileName || `perfil-${Date.now()}.jpg`,
-        );
-      } else {
-        // No Android/iOS, utiliza o formato do React Native.
-        formData.append("file", {
-          uri: asset.uri,
-          name: asset.fileName || `perfil-${Date.now()}.jpg`,
-          type: mimeType,
-        });
-      }
-
-      setUploadingPhoto(true);
-
-      const response = await api("/api/auth/profile/photo", token, {
-        method: "POST",
-        body: formData,
-      });
-
-      onUserUpdated?.(response.user);
-
-      Alert.alert("Foto atualizada", "Sua foto de perfil foi salva.");
-    } catch (error) {
-      console.error("Erro ao enviar foto:", error);
-
-      Alert.alert(
-        "Erro ao enviar foto",
-        error.message || "Não foi possível atualizar sua foto.",
-      );
-    } finally {
-      setUploadingPhoto(false);
-    }
-  };
-
-
+function ValueCard({ label, value, icon, edit, editing, input, onChange, onSave, onCancel, saving, keyboardType = "default" }) {
   return (
-    <Screen>
-      <View style={styles.pageIntro}>
-        <Text style={styles.eyebrow}>SUA CONTA</Text>
-        <Text style={styles.formTitle}>Meu perfil</Text>
-        <Text style={styles.formIntro}>
-          Gerencie seus dados pessoais e sua foto de perfil.
-        </Text>
-      </View>
-
-      <View style={styles.card}>
-        <View style={{ alignItems: "center", paddingVertical: 20 }}>
-          <Pressable
-            onPress={choosePhoto}
-            disabled={uploadingPhoto}
-            accessibilityRole="button"
-            accessibilityLabel="Alterar foto de perfil"
-            style={{ alignItems: "center" }}
-          >
-            {photoUrl ? (
-              <Image
-                source={{ uri: assetUrl(photoUrl) }}
-                style={{
-                  width: 104,
-                  height: 104,
-                  borderRadius: 52,
-                  borderWidth: 3,
-                  borderColor: COLORS.sage,
-                }}
-              />
-            ) : (
-              <Avatar
-                text={initials(displayName) || "?"}
-                color={COLORS.terracotta}
-              />
-            )}
-
-            <View
-              style={{
-                position: "absolute",
-                right: 0,
-                bottom: 0,
-                width: 34,
-                height: 34,
-                borderRadius: 17,
-                backgroundColor: COLORS.teal,
-                alignItems: "center",
-                justifyContent: "center",
-                borderWidth: 3,
-                borderColor: COLORS.card,
-              }}
-            >
-              <Icon name="camera" size={16} color={COLORS.white} />
-            </View>
-          </Pressable>
-
-          {uploadingPhoto ? (
-            <View style={{ flexDirection: "row", alignItems: "center", gap: 8, marginTop: 12 }}>
-              <ActivityIndicator color={COLORS.teal} />
-              <Text style={styles.memberEmail}>Enviando foto...</Text>
-            </View>
+    <View style={{
+      backgroundColor: "#f5f5f6", borderRadius: 13,
+      paddingVertical: 15, paddingHorizontal: 16,
+      borderWidth: 1, borderColor: "#eeedef", marginBottom: 16,
+      elevation: 2,
+    }}>
+      <View style={{ flexDirection: "row", alignItems: "center", minHeight: 30 }}>
+        <Text style={{ fontSize: 12, color: "#73717d", marginRight: 7 }}>{label}:</Text>
+        <View style={{ flex: 1 }}>
+          {editing ? (
+            <TextInput
+              value={input}
+              onChangeText={onChange}
+              autoFocus
+              editable={!saving}
+              keyboardType={keyboardType}
+              autoCapitalize={keyboardType === "email-address" ? "none" : "sentences"}
+              accessibilityLabel={"Editar " + label.toLowerCase()}
+              style={{ color: inky, fontSize: 14, minHeight: 33, borderBottomWidth: 1, borderColor: "#8d839e" }}
+            />
           ) : (
-            <Text style={[styles.memberEmail, { marginTop: 10 }]}>
-              Toque na foto para alterá-la
+            <Text style={{ fontSize: 14, fontWeight: "600", color: inky }} numberOfLines={2}>
+              {value || "Não informado"}
             </Text>
           )}
-
-          <Text
-            style={[
-              styles.sectionTitleSmall,
-              { textAlign: "center", marginTop: 14 },
-            ]}
-          >
-            {displayName}
-          </Text>
-
-          <Text style={[styles.memberEmail, { textAlign: "center", marginTop: 5 }]}>
-            {displayEmail}
-          </Text>
-
-          <View
-            style={{
-              flexDirection: "row",
-              alignItems: "center",
-              marginTop: 12,
-              paddingHorizontal: 12,
-              paddingVertical: 7,
-              borderRadius: 20,
-              backgroundColor: COLORS.sage,
-              gap: 6,
-            }}
-          >
-            <Icon name="shield" size={15} color={COLORS.teal} />
-            <Text style={{ color: COLORS.teal, fontSize: 12, fontWeight: "600" }}>
-              Conta conectada
-            </Text>
-          </View>
         </View>
-      </View>
-
-      <View style={styles.card}>
-        <Text style={styles.eyebrow}>INFORMAÇÕES PESSOAIS</Text>
-        <Text style={[styles.sectionTitleSmall, { marginBottom: 16 }]}>
-          Dados da conta
-        </Text>
-
-        <Text style={styles.memberEmail}>Nome completo</Text>
-        <TextInput
-          value={name}
-          onChangeText={setName}
-          editable={editing && !saving}
-          placeholder="Seu nome completo"
-          placeholderTextColor={COLORS.muted}
-          autoCapitalize="words"
-          style={{
-            borderWidth: 1,
-            borderColor: COLORS.line,
-            borderRadius: 12,
-            paddingHorizontal: 14,
-            paddingVertical: 12,
-            marginTop: 6,
-            marginBottom: 16,
-            color: COLORS.ink,
-            backgroundColor: editing ? COLORS.white : COLORS.sage,
-          }}
-        />
-
-        <Text style={styles.memberEmail}>E-mail de acesso</Text>
-        <TextInput
-          value={email}
-          onChangeText={setEmail}
-          editable={editing && !saving}
-          placeholder="seu@email.com"
-          placeholderTextColor={COLORS.muted}
-          keyboardType="email-address"
-          autoCapitalize="none"
-          autoCorrect={false}
-          style={{
-            borderWidth: 1,
-            borderColor: COLORS.line,
-            borderRadius: 12,
-            paddingHorizontal: 14,
-            paddingVertical: 12,
-            marginTop: 6,
-            marginBottom: 18,
-            color: COLORS.ink,
-            backgroundColor: editing ? COLORS.white : COLORS.sage,
-          }}
-        />
-
-        {editing ? (
-          <View style={{ gap: 10 }}>
-            <Button
-              icon="check"
-              onPress={saveProfile}
-              disabled={saving}
-            >
-              {saving ? "Salvando..." : "Salvar alterações"}
-            </Button>
-
-            <Button
-              variant="secondary"
-              onPress={() => {
-                setName(user?.name || user?.nome || "");
-                setEmail(user?.email || "");
-                setEditing(false);
-              }}
-              disabled={saving}
-            >
-              Cancelar
-            </Button>
-          </View>
-        ) : (
-          <Button
-            icon="edit-2"
-            onPress={() => setEditing(true)}
+        {!editing && (
+          <Pressable
+            onPress={edit}
+            accessibilityRole="button"
+            accessibilityLabel={"Alterar " + label.toLowerCase()}
+            style={{ width: 36, height: 36, justifyContent: "center", alignItems: "center" }}
           >
-            Editar dados da conta
-          </Button>
+            <Icon name="edit-2" size={17} color="#3b3c45" />
+          </Pressable>
         )}
       </View>
-
-      <View style={styles.card}>
-        <Text style={styles.eyebrow}>SEU ESPAÇO</Text>
-        <Text style={[styles.sectionTitleSmall, { marginBottom: 12 }]}>
-          {family?.name || "Minha família"}
-        </Text>
-
-        <Text style={styles.formIntro}>
-          {family?.description ||
-            "Um espaço para preservar as lembranças de quem importa."}
-        </Text>
-
-        <View style={{ flexDirection: "row", gap: 10, marginTop: 18 }}>
-          <View
-            style={{
-              flex: 1,
-              padding: 14,
-              borderRadius: 14,
-              backgroundColor: COLORS.sage,
-            }}
+      {editing && (
+        <View style={{ flexDirection: "row", gap: 9, marginTop: 15 }}>
+          <Pressable
+            onPress={onSave} disabled={saving}
+            accessibilityRole="button" accessibilityLabel={"Salvar " + label.toLowerCase()}
+            style={[S.actionButton, { flex: 1, minHeight: 42 }]}
           >
-            <Icon name="book-open" size={19} color={COLORS.teal} />
-            <Text style={{ fontSize: 23, fontWeight: "700", color: COLORS.ink, marginTop: 10 }}>
-              {chapters.length}
-            </Text>
-            <Text style={styles.memberEmail}>Memórias</Text>
-          </View>
-
-          <View
-            style={{
-              flex: 1,
-              padding: 14,
-              borderRadius: 14,
-              backgroundColor: COLORS.peach,
-            }}
+            {saving ? <ActivityIndicator color="#fff" /> : <Text style={S.actionLabel}>Salvar</Text>}
+          </Pressable>
+          <Pressable
+            onPress={onCancel} disabled={saving}
+            accessibilityRole="button" accessibilityLabel="Cancelar edição"
+            style={[S.secondaryButton, { flex: 1, minHeight: 42 }]}
           >
-            <Icon name="users" size={19} color={COLORS.terracotta} />
-            <Text style={{ fontSize: 23, fontWeight: "700", color: COLORS.ink, marginTop: 10 }}>
-              {members.length}
-            </Text>
-            <Text style={styles.memberEmail}>Participantes</Text>
-          </View>
+            <Text style={S.secondaryLabel}>Cancelar</Text>
+          </Pressable>
         </View>
-      </View>
-
-      <View
-        style={[
-          styles.card,
-          { borderWidth: 1, borderColor: "#E8C8C1" },
-        ]}
-      >
-        <View style={{ flexDirection: "row", alignItems: "center", gap: 12 }}>
-          <Icon name="log-out" size={22} color={COLORS.danger} />
-          <View style={{ flex: 1 }}>
-            <Text style={[styles.memberName, { color: COLORS.danger }]}>
-              Sair da conta
-            </Text>
-            <Text style={styles.memberEmail}>
-              Encerrar sua sessão neste dispositivo.
-            </Text>
-          </View>
-        </View>
-
-        <View style={{ marginTop: 18 }}>
-          <Button
-            variant="danger"
-            icon="log-out"
-            onPress={confirmLogout}
-          >
-            Sair da conta
-          </Button>
-        </View>
-      </View>
-
-      <Text style={[styles.memberEmail, { textAlign: "center", marginBottom: 20 }]}>
-        Memória Viva · Suas histórias, para sempre.
-      </Text>
-    </Screen>
+      )}
+    </View>
   );
 }
 
+export function Profile({ user, token, onBack, onUserUpdated, onLogout }) {
+  const [editing, setEditing] = useState("");
+  const [input, setInput] = useState("");
+  const [busy, setBusy] = useState(false);
+  const [uploading, setUploading] = useState(false);
+  const [error, setError] = useState("");
+  const displayName = user?.name || user?.nome || "Pessoa";
+  const displayEmail = user?.email || "";
+  const displayAge = user?.age === null || user?.age === undefined ? "" : String(user.age);
+  const photoUrl = user?.photoUrl || null;
+
+  const edit = (field) => {
+    setError("");
+    setEditing(field);
+    setInput(field === "name" ? displayName : field === "email" ? displayEmail : displayAge);
+  };
+
+  const saveField = async () => {
+    if (busy || !editing) return;
+    const name = editing === "name" ? input.trim() : displayName;
+    const email = editing === "email" ? input.trim().toLowerCase() : displayEmail;
+    const age = editing === "age" ? input.trim() : displayAge;
+    if (name.length < 2 || name.length > 100) return setError("Informe um nome entre 2 e 100 caracteres.");
+    if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) return setError("Informe um e-mail válido.");
+    if (age !== "" && (!/^\d+$/.test(age) || Number(age) > 120)) return setError("Informe uma idade válida ou deixe em branco.");
+
+    try {
+      setBusy(true);
+      setError("");
+      const result = await api("/api/auth/profile", token, {
+        method: "PATCH", body: JSON.stringify({ name, email, age: age === "" ? null : Number(age) }),
+      });
+      onUserUpdated?.(result.user);
+      setEditing("");
+    } catch (e) {
+      setError(e.message || "Não foi possível salvar os dados.");
+    } finally { setBusy(false); }
+  };
+
+  const choosePhoto = async () => {
+    if (uploading) return;
+    try {
+      setError("");
+      if (Platform.OS !== "web") {
+        const permission = await ImagePicker.requestMediaLibraryPermissionsAsync();
+        if (!permission.granted) throw new Error("Permita o acesso à galeria.");
+      }
+      const result = await ImagePicker.launchImageLibraryAsync({
+        mediaTypes: ["images"], allowsEditing: true, aspect: [1, 1], quality: 0.85,
+      });
+      if (result.canceled || !result.assets?.[0]) return;
+      setUploading(true);
+      const form = await fileFormData(result.assets[0]);
+      const response = await api("/api/auth/profile/photo", token, { method: "POST", body: form });
+      onUserUpdated?.(response.user);
+    } catch (e) { setError(e.message || "Não foi possível atualizar a foto."); }
+    finally { setUploading(false); }
+  };
+
+  return (
+    <ScrollView contentContainerStyle={[S.scroll, { paddingTop: 8, paddingHorizontal: 25, paddingBottom: 45 }]} showsVerticalScrollIndicator={false}>
+      <Pressable
+        onPress={onBack} accessibilityRole="button" accessibilityLabel="Voltar ao Início"
+        style={{ width: 44, minHeight: 44, justifyContent: "center" }}
+      >
+        <Icon name="chevron-left" size={24} color={inky} />
+      </Pressable>
+
+      <View style={{ alignItems: "center", marginTop: 8, marginBottom: 40 }}>
+        <Pressable
+          onPress={choosePhoto}
+          disabled={uploading}
+          accessibilityRole="button" accessibilityLabel="Alterar foto de perfil"
+          style={({ pressed }) => [{
+            width: 112, height: 112, backgroundColor: "#17191f",
+            padding: 7, borderRadius: 23, justifyContent: "center", alignItems: "center",
+            elevation: 4, opacity: pressed ? 0.7 : 1,
+          }]}
+        >
+          <View style={{
+            flex: 1, width: "100%", borderRadius: 18,
+            backgroundColor: "#fff", overflow: "hidden", alignItems: "center", justifyContent: "center",
+          }}>
+            {uploading ? <ActivityIndicator color={inky} /> : photoUrl ? (
+              <Image source={{ uri: assetUrl(photoUrl) }} resizeMode="cover" style={{ width: "100%", height: "100%" }} />
+            ) : <Icon name="user" size={45} color="#22242b" />}
+          </View>
+          <View style={{
+            position: "absolute", bottom: -6, right: -7,
+            width: 35, height: 35, borderRadius: 18, backgroundColor: "#fff",
+            alignItems: "center", justifyContent: "center", borderWidth: 1, borderColor: "#e5e3e9",
+          }}>
+            <Icon name="camera" size={17} color={inky} />
+          </View>
+        </Pressable>
+        <Text style={{ marginTop: 18, fontSize: 12, color: "#6e6d78" }}>
+          Toque para alterar sua foto
+        </Text>
+      </View>
+
+      <ValueCard label="Nome" value={displayName}
+        edit={() => edit("name")} editing={editing === "name"}
+        input={input} onChange={setInput} onSave={saveField}
+        onCancel={() => setEditing("")} saving={busy} />
+      <ValueCard label="Idade" value={displayAge ? displayAge + " anos" : ""}
+        edit={() => edit("age")} editing={editing === "age"}
+        input={input} onChange={setInput} onSave={saveField}
+        onCancel={() => setEditing("")} saving={busy} keyboardType="numeric" />
+      <ValueCard label="Email" value={displayEmail}
+        edit={() => edit("email")} editing={editing === "email"}
+        input={input} onChange={setInput} onSave={saveField}
+        onCancel={() => setEditing("")} saving={busy} keyboardType="email-address" />
+
+      {!!error && <View style={[S.error, { marginTop: 8 }]}><Text style={S.errorText}>{error}</Text></View>}
+
+      <Pressable
+        onPress={onLogout}
+        accessibilityRole="button" accessibilityLabel="Sair da conta"
+        style={[S.secondaryButton, { marginTop: 28 }]}
+      >
+        <Icon name="log-out" size={17} color={COLORS.danger} />
+        <Text style={[S.secondaryLabel, { color: COLORS.danger }]}>Sair da conta</Text>
+      </Pressable>
+    </ScrollView>
+  );
+}
 export default Profile;

@@ -1,20 +1,21 @@
 const API_URL = (
   process.env.EXPO_PUBLIC_API_URL ||
-  "https://memoriaviva-9ft2.onrender.com"
+  "http://localhost:3001"
 ).replace(/\/$/, "");
 export const COLORS = {
-  ink: "#18383c",
-  teal: "#0b4f59",
-  dark: "#073b43",
-  paper: "#f7f5ef",
-  card: "#fffdf8",
-  muted: "#758580",
-  line: "#e2e6de",
-  terracotta: "#c8785f",
-  sage: "#e5efe9",
-  peach: "#f3e3d8",
+  // Identidade Memória Viva: grafite, lavanda e superfícies claras.
+  ink: "#24252d",
+  teal: "#36384e",
+  dark: "#191b22",
+  paper: "#fcfbfe",
+  card: "#ffffff",
+  muted: "#7c7b89",
+  line: "#e4e2eb",
+  terracotta: "#776ba2",
+  sage: "#f2f0f8",
+  peach: "#efedf7",
   white: "#ffffff",
-  danger: "#a45140",
+  danger: "#ad3c50",
 };
 
 export const api = async (path, token, options = {}) => {

@@ -30,19 +30,30 @@ const upload = multer({
   },
 });
 
+// Links temporários de mídia não incluem o JWT de autenticação do usuário.
+const fileExpirySeconds = 10 * 60;
+function signedFileUrl(kind, id, viewerId) {
+  const expires = Math.floor(Date.now() / 1000) + fileExpirySeconds;
+  const payload = `${kind}:${id}:${viewerId}:${expires}`;
+  const signature = crypto.createHmac('sha256', process.env.JWT_SECRET)
+    .update(payload).digest('hex');
+  return `/api/files/${kind}/${id}?viewer=${viewerId}&expires=${expires}&sig=${signature}`;
+}
 const asId = (value) => String(value);
 const publicUser = (u) => ({
   id: asId(u.id_usuario),
   name: u.nome,
   email: u.email,
-  photoUrl: u.foto_perfil || null,
+  age: u.idade ?? null,
+  photoUrl: u.foto_perfil ? signedFileUrl('avatar', u.id_usuario, u.id_usuario) : null,
   createdAt: u.data_criacao,
 });
-const publicFamily = (f) => ({
+const publicFamily = (f, viewerId) => ({
   id: asId(f.id_grupo),
   name: f.nome,
   description: f.descricao || '',
-  photoUrl: f.foto_grupo || null,
+  photoUrl: f.foto_grupo && viewerId ? signedFileUrl('group', f.id_grupo, viewerId) : null,
+  isAdmin: viewerId ? Number(f.id_admin) === Number(viewerId) : false,
   createdAt: f.data_criacao,
 });
 const publicMember = (row) => ({
@@ -50,15 +61,23 @@ const publicMember = (row) => ({
   userId: asId(row.id_usuario),
   permission: row.permissao,
   joinedAt: row.data_entrada,
-  user: { id: asId(row.id_usuario), name: row.nome, email: row.email, photoUrl: row.foto_perfil || null },
+  user: { id: asId(row.id_usuario), name: row.nome, email: row.email,
+    photoUrl: row.foto_perfil ? signedFileUrl('avatar', row.id_usuario, row.id_usuario) : null },
 });
 const mediaType = (mime = '') => mime.startsWith('image/') ? 'image' : mime.startsWith('video/') ? 'video' : mime.startsWith('audio/') ? 'audio' : 'file';
-const publicMedia = (m) => ({
+const publicMedia = (m, viewerId) => ({
   id: asId(m.id_midia),
-  title: m.descricao || path.basename(m.arquivo),
-  url: m.arquivo.startsWith('http') ? m.arquivo : m.arquivo,
+  authorId: asId(m.id_usuario),
+  title: m.titulo || m.descricao || path.basename(m.arquivo),
+  caption: m.descricao || '',
+  place: m.local_lembranca || '',
+  story: m.historia || '',
+  url: signedFileUrl('media', m.id_midia, viewerId),
   type: m.tipo_midia,
   createdAt: m.data_upload,
+  memoryDate: m.data_lembranca
+    ? (m.data_lembranca.toISOString ? m.data_lembranca.toISOString().slice(0, 10) : String(m.data_lembranca).slice(0, 10))
+    : null,
 });
 const publicComment = (c) => ({
   id: asId(c.id_comentario),
@@ -78,14 +97,13 @@ async function listFamiliesForUser(userId) {
      WHERE pg.id_usuario = $1 ORDER BY g.data_criacao DESC`,
     [userId],
   );
-  return result.rows.map(publicFamily);
+  return result.rows.map((row) => publicFamily(row, userId));
 }
 
-async function assertChapterAccess(chapterId, userId, allowPrivate = true) {
+async function assertChapterAccess(chapterId, userId) {
   const result = await query(
     `SELECT s.*, g.id_admin,
-       pg.permissao AS family_permission,
-       EXISTS (SELECT 1 FROM participante_subgrupo ps WHERE ps.id_subgrupo=s.id_subgrupo AND ps.id_usuario=$2) AS is_chapter_member
+       pg.permissao AS family_permission
      FROM subgrupo s
      JOIN participante_grupo pg ON pg.id_grupo=s.id_grupo AND pg.id_usuario=$2
      JOIN grupo g ON g.id_grupo=s.id_grupo
@@ -93,20 +111,18 @@ async function assertChapterAccess(chapterId, userId, allowPrivate = true) {
     [chapterId, userId],
   );
   if (!result.rowCount) return null;
-  const chapter = result.rows[0];
-  if (!allowPrivate && chapter.visibilidade === 'private' && !chapter.is_chapter_member) return null;
-  if (chapter.visibilidade === 'private' && !chapter.is_chapter_member && Number(chapter.id_admin) !== Number(userId)) return null;
-  return chapter;
+  // Todos os integrantes do grupo acessam os álbuns do grupo; não existem álbuns públicos.
+  return result.rows[0];
 }
 
 async function getChapter(chapterId, userId) {
-  const base = await assertChapterAccess(chapterId, userId, true);
+  const base = await assertChapterAccess(chapterId, userId);
   if (!base) return null;
   const [members, media, comments] = await Promise.all([
     query(
-      `SELECT u.id_usuario FROM participante_subgrupo ps JOIN usuario u ON u.id_usuario=ps.id_usuario
-       WHERE ps.id_subgrupo=$1 ORDER BY u.nome`, [chapterId]),
-    query('SELECT * FROM midia WHERE id_subgrupo=$1 ORDER BY data_upload DESC', [chapterId]),
+      `SELECT pg.id_usuario FROM participante_grupo pg
+       WHERE pg.id_grupo=$1 ORDER BY pg.data_entrada`, [base.id_grupo]),
+    query('SELECT * FROM midia WHERE id_subgrupo=$1 ORDER BY data_lembranca DESC NULLS LAST, data_upload DESC', [chapterId]),
     query(
       `SELECT c.*, u.nome, u.email FROM comentario c JOIN usuario u ON u.id_usuario=c.id_usuario
        WHERE c.id_subgrupo=$1 ORDER BY c.data_criacao ASC`, [chapterId]),
@@ -116,12 +132,13 @@ async function getChapter(chapterId, userId) {
     familyId: asId(base.id_grupo),
     title: base.nome,
     description: base.descricao || '',
-    eventDate: base.data_evento.toISOString ? base.data_evento.toISOString().slice(0, 10) : String(base.data_evento).slice(0, 10),
+    coverUrl: base.foto_capa ? signedFileUrl('album', base.id_subgrupo, userId) : null,
+    eventDate: base.data_evento ? (base.data_evento.toISOString ? base.data_evento.toISOString().slice(0, 10) : String(base.data_evento).slice(0, 10)) : null,
     visibility: base.visibilidade,
     createdAt: base.data_criacao,
     createdBy: asId(base.id_criador),
     memberIds: members.rows.map((r) => asId(r.id_usuario)),
-    media: media.rows.map(publicMedia),
+    media: media.rows.map((m) => publicMedia(m, userId)),
     comments: comments.rows.map(publicComment),
   };
 }
@@ -135,22 +152,84 @@ async function familyPayload(familyId, userId) {
      FROM participante_grupo pg JOIN usuario u ON u.id_usuario=pg.id_usuario
      WHERE pg.id_grupo=$1 ORDER BY pg.data_entrada, u.nome`, [familyId]);
   const chapterIds = await query(
-    `SELECT s.id_subgrupo FROM subgrupo s
-     WHERE s.id_grupo=$1 AND (s.visibilidade='family' OR EXISTS (
-       SELECT 1 FROM participante_subgrupo ps WHERE ps.id_subgrupo=s.id_subgrupo AND ps.id_usuario=$2
-     ) OR EXISTS (SELECT 1 FROM grupo g WHERE g.id_grupo=s.id_grupo AND g.id_admin=$2))
-     ORDER BY s.data_evento DESC, s.data_criacao DESC`, [familyId, userId]);
+    `SELECT id_subgrupo FROM subgrupo
+     WHERE id_grupo=$1 ORDER BY data_criacao DESC`, [familyId]);
   const chapters = [];
   for (const row of chapterIds.rows) {
     const chapter = await getChapter(row.id_subgrupo, userId);
     if (chapter) chapters.push(chapter);
   }
   return {
-    family: publicFamily(familyResult.rows[0]),
+    family: publicFamily(familyResult.rows[0], userId),
     members: membersResult.rows.map(publicMember),
     chapters,
   };
 }
+
+// Arquivos privados: cada URL tem assinatura temporária e permissão revalidada.
+router.get('/api/files/:kind/:id', async (req, res, next) => {
+  const { kind } = req.params;
+  const id = Number(req.params.id);
+  const viewer = Number(req.query.viewer);
+  const expires = Number(req.query.expires);
+  const signature = String(req.query.sig || '');
+  const now = Math.floor(Date.now() / 1000);
+  const validSignature = new RegExp('^[a-f0-9]{64}$').test(signature);
+  if (!['media', 'avatar', 'group', 'album'].includes(kind) ||
+      !Number.isSafeInteger(id) || id < 1 ||
+      !Number.isSafeInteger(viewer) || viewer < 1 ||
+      !Number.isSafeInteger(expires) ||
+      expires < now || expires > now + fileExpirySeconds ||
+      !validSignature) {
+    return res.status(404).json({ error: { message: 'Arquivo indisponível.' } });
+  }
+  const payload = `${kind}:${id}:${viewer}:${expires}`;
+  const expected = crypto.createHmac('sha256', process.env.JWT_SECRET)
+    .update(payload).digest();
+  if (!crypto.timingSafeEqual(Buffer.from(signature, 'hex'), expected)) {
+    return res.status(404).json({ error: { message: 'Arquivo indisponível.' } });
+  }
+  try {
+    let result;
+    if (kind === 'media') {
+      result = await query(
+        `SELECT m.arquivo FROM midia m
+         JOIN subgrupo s ON s.id_subgrupo=m.id_subgrupo
+         JOIN participante_grupo pg ON pg.id_grupo=s.id_grupo AND pg.id_usuario=$2
+         WHERE m.id_midia=$1`, [id, viewer],
+      );
+    } else if (kind === 'group') {
+      result = await query(
+        `SELECT g.foto_grupo AS arquivo FROM grupo g
+         JOIN participante_grupo pg ON pg.id_grupo=g.id_grupo AND pg.id_usuario=$2
+         WHERE g.id_grupo=$1`, [id, viewer]
+      );
+    } else if (kind === 'album') {
+      result = await query(
+        `SELECT s.foto_capa AS arquivo FROM subgrupo s
+         JOIN participante_grupo pg ON pg.id_grupo=s.id_grupo AND pg.id_usuario=$2
+         WHERE s.id_subgrupo=$1`, [id, viewer]
+      );
+    } else {
+      result = await query(
+        'SELECT foto_perfil AS arquivo FROM usuario WHERE id_usuario=$1 AND id_usuario=$2',
+        [id, viewer],
+      );
+    }
+    const stored = result.rows[0]?.arquivo;
+    if (!stored || !stored.startsWith('/uploads/')) {
+      return res.status(404).json({ error: { message: 'Arquivo não encontrado.' } });
+    }
+    return res.sendFile(path.basename(stored), {
+      root: uploadsDir,
+      headers: { 'Cache-Control': 'private, max-age=60' },
+    }, (err) => {
+      if (err && !res.headersSent) {
+        res.status(404).json({ error: { message: 'Arquivo indisponível neste servidor.' } });
+      }
+    });
+  } catch (err) { next(err); }
+});
 
 // Health check
 router.get('/health', async (_req, res) => {
@@ -184,13 +263,7 @@ router.post('/api/auth/register', async (req, res, next) => {
       [name, email, hash],
     );
     const user = inserted.rows[0];
-    const invitations = await client.query("SELECT id_convite,id_grupo FROM convite_grupo WHERE LOWER(email)=LOWER($1) AND status='pending'", [email]);
-    for (const invite of invitations.rows) {
-      await client.query(
-        `INSERT INTO participante_grupo (id_usuario,id_grupo,permissao)
-         VALUES ($1,$2,'member') ON CONFLICT (id_usuario,id_grupo) DO NOTHING`, [user.id_usuario, invite.id_grupo]);
-      await client.query("UPDATE convite_grupo SET status='accepted' WHERE id_convite=$1", [invite.id_convite]);
-    }
+    // Convites são aceitos explicitamente pelo usuário, nunca durante o cadastro.
     await client.query('COMMIT');
     res.status(201).json({ token: signToken(user), user: publicUser(user), families: await listFamiliesForUser(user.id_usuario) });
   } catch (err) {
@@ -221,6 +294,11 @@ router.post('/api/auth/logout', authenticate, (_req, res) => res.status(204).end
 router.patch('/api/auth/profile', authenticate, async (req, res, next) => {
   const name = String(req.body.name || '').trim();
   const email = String(req.body.email || '').trim().toLowerCase();
+  const age = req.body.age === null || req.body.age === undefined || req.body.age === ''
+    ? null : Number(req.body.age);
+  if (age !== null && (!Number.isInteger(age) || age < 0 || age > 120)) {
+    return res.status(400).json({ error: { message: 'A idade deve estar entre 0 e 120 anos.' } });
+  }
 
   if (name.length < 2 || name.length > 100) {
     return res.status(400).json({
@@ -252,10 +330,10 @@ router.patch('/api/auth/profile', authenticate, async (req, res, next) => {
 
     const result = await query(
       `UPDATE usuario
-       SET nome = $1, email = $2
-       WHERE id_usuario = $3
-       RETURNING id_usuario, nome, email, foto_perfil, data_criacao`,
-      [name, email, req.user.id_usuario],
+       SET nome = $1, email = $2, idade = $3
+       WHERE id_usuario = $4
+       RETURNING id_usuario, nome, email, idade, foto_perfil, data_criacao`,
+      [name, email, age, req.user.id_usuario],
     );
 
     if (!result.rowCount) {
@@ -304,7 +382,7 @@ router.post('/api/auth/profile/photo', authenticate, (req, res, next) => {
       `UPDATE usuario
        SET foto_perfil = $1
        WHERE id_usuario = $2
-       RETURNING id_usuario, nome, email, foto_perfil, data_criacao`,
+       RETURNING id_usuario, nome, email, idade, foto_perfil, data_criacao`,
       [photoUrl, req.user.id_usuario],
     );
 
@@ -343,7 +421,7 @@ router.post('/api/families', authenticate, async (req, res, next) => {
     const family = created.rows[0];
     await client.query("INSERT INTO participante_grupo (id_usuario,id_grupo,permissao) VALUES ($1,$2,'admin')", [req.user.id_usuario, family.id_grupo]);
     await client.query('COMMIT');
-    res.status(201).json({ family: publicFamily(family) });
+    res.status(201).json({ family: publicFamily(family, req.user.id_usuario) });
   } catch (err) { await client.query('ROLLBACK').catch(() => {}); next(err); }
   finally { client.release(); }
 });
@@ -365,109 +443,389 @@ router.patch('/api/families/:id', authenticate, requireFamilyMember, async (req,
   if (name.length < 2 || name.length > 100) return res.status(400).json({ error: { message: 'O nome da família deve ter de 2 a 100 caracteres.' } });
   try {
     const result = await query('UPDATE grupo SET nome=$1, descricao=$2 WHERE id_grupo=$3 RETURNING *', [name, description || null, req.familyId]);
-    res.json({ family: publicFamily(result.rows[0]) });
+    res.json({ family: publicFamily(result.rows[0], req.user.id_usuario) });
   } catch (err) { next(err); }
 });
 
-router.post('/api/families/:familyId/members/invite', authenticate, requireFamilyMember, async (req, res, next) => {
-  if (req.familyPermission !== 'admin' && Number(req.familyAdminId) !== Number(req.user.id_usuario)) return res.status(403).json({ error: { message: 'Somente administradores podem convidar pessoas.' } });
-  const email = String(req.body.email || '').trim().toLowerCase();
-  if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) return res.status(400).json({ error: { message: 'Informe um e-mail válido.' } });
+// Exclusão definitiva de grupos. Nunca remove contas de usuários.
+// A interface solicita digitar o nome e a API valida novamente a confirmação.
+router.delete('/api/families/:id', authenticate, requireFamilyMember, async (req, res, next) => {
+  if (Number(req.familyAdminId) !== Number(req.user.id_usuario)) {
+    return res.status(403).json({ error: { message: 'Somente o criador e administrador pode excluir este grupo.' } });
+  }
+  if (req.body?.confirmed !== true || typeof req.body?.confirmName !== 'string') {
+    return res.status(400).json({ error: { message: 'Confirme a exclusão informando o nome exato do grupo.' } });
+  }
+  const client = await pool.connect();
+  let files = [];
   try {
-    const existing = await query('SELECT id_usuario FROM usuario WHERE LOWER(email)=LOWER($1)', [email]);
-    if (existing.rowCount) {
-      await query("INSERT INTO participante_grupo (id_usuario,id_grupo,permissao) VALUES ($1,$2,'member') ON CONFLICT (id_usuario,id_grupo) DO NOTHING", [existing.rows[0].id_usuario, req.familyId]);
-      return res.json({ message: 'Pessoa adicionada à família.' });
+    await client.query('BEGIN');
+    const result = await client.query(
+      'SELECT nome, foto_grupo, id_admin FROM grupo WHERE id_grupo=$1 FOR UPDATE',
+      [req.familyId]
+    );
+    const current = result.rows[0];
+    if (!current) {
+      await client.query('ROLLBACK');
+      return res.status(404).json({ error: { message: 'Grupo não encontrado.' } });
+    }
+    if (Number(current.id_admin) !== Number(req.user.id_usuario)) {
+      await client.query('ROLLBACK');
+      return res.status(403).json({ error: { message: 'Você não pode excluir este grupo.' } });
+    }
+    if (req.body.confirmName !== current.nome) {
+      await client.query('ROLLBACK');
+      return res.status(400).json({ error: { message: 'Digite exatamente o nome atual do grupo para confirmar.' } });
+    }
+    const media = await client.query(
+      `SELECT m.arquivo FROM midia m JOIN subgrupo s ON s.id_subgrupo=m.id_subgrupo WHERE s.id_grupo=$1`,
+      [req.familyId]
+    );
+    const albums = await client.query(
+      'SELECT foto_capa FROM subgrupo WHERE id_grupo=$1',
+      [req.familyId]
+    );
+    files = [current.foto_grupo, ...albums.rows.map(a => a.foto_capa), ...media.rows.map(m => m.arquivo)]
+      .filter(file => typeof file === 'string' && file.startsWith('/uploads/'));
+    // Foreign keys ON DELETE CASCADE remove álbuns, mídias, comentários, convites e participantes.
+    await client.query('DELETE FROM grupo WHERE id_grupo=$1', [req.familyId]);
+    await client.query('COMMIT');
+  } catch (err) {
+    await client.query('ROLLBACK').catch(() => {});
+    return next(err);
+  } finally {
+    client.release();
+  }
+  const results = await Promise.allSettled(
+    [...new Set(files)].map(file => fs.promises.unlink(path.join(uploadsDir, path.basename(file))))
+  );
+  if (results.some(item => item.status === 'rejected' && item.reason?.code !== 'ENOENT')) {
+    console.warn('[Arquivos] Algumas mídias do grupo excluído exigem limpeza de armazenamento.');
+  }
+  return res.json({ message: 'Grupo e seu conteúdo excluídos. As contas dos participantes foram preservadas.' });
+});
+
+// Uma capa é uma imagem privada, distinta das lembranças armazenadas no álbum.
+function receiveCover(req, res, next) {
+  upload.single('file')(req, res, (err) => {
+    if (err) {
+      return res.status(err.code === 'LIMIT_FILE_SIZE' ? 413 : 400)
+        .json({ error: { message: err.message || 'Não foi possível enviar a capa.' } });
+    }
+    next();
+  });
+}
+
+async function ensureCoverImage(req, res) {
+  if (!req.file || !/^image\/(jpeg|png|webp|gif)$/.test(req.file.mimetype)) {
+    if (req.file) await fs.promises.unlink(req.file.path).catch(() => {});
+    res.status(400).json({ error: { message: 'Escolha uma foto JPG, PNG, WEBP ou GIF para a capa.' } });
+    return false;
+  }
+  return true;
+}
+
+router.post('/api/families/:id/cover', authenticate, requireFamilyMember, receiveCover, async (req, res, next) => {
+  if (!(await ensureCoverImage(req, res))) return;
+  if (req.familyPermission !== 'admin' && Number(req.familyAdminId) !== Number(req.user.id_usuario)) {
+    await fs.promises.unlink(req.file.path).catch(() => {});
+    return res.status(403).json({ error: { message: 'Somente administradores podem alterar a capa.' } });
+  }
+  try {
+    const prior = await query('SELECT foto_grupo FROM grupo WHERE id_grupo=$1', [req.familyId]);
+    const location = `/uploads/${req.file.filename}`;
+    const updated = await query('UPDATE grupo SET foto_grupo=$1 WHERE id_grupo=$2 RETURNING *',
+      [location, req.familyId]);
+    if (prior.rows[0]?.foto_grupo?.startsWith('/uploads/')) {
+      const old = path.basename(prior.rows[0].foto_grupo);
+      if (old !== req.file.filename) fs.promises.unlink(path.join(uploadsDir, old)).catch(() => {});
+    }
+    res.json({ family: publicFamily(updated.rows[0], req.user.id_usuario) });
+  } catch (err) { await fs.promises.unlink(req.file.path).catch(() => {}); next(err); }
+});
+
+router.post('/api/chapters/:id/cover', authenticate, receiveCover, async (req, res, next) => {
+  if (!(await ensureCoverImage(req, res))) return;
+  try {
+    const album = await assertChapterAccess(Number(req.params.id), req.user.id_usuario);
+    if (!album) {
+      await fs.promises.unlink(req.file.path).catch(() => {});
+      return res.status(404).json({ error: { message: 'Álbum não encontrado.' } });
+    }
+    if (album.family_permission !== 'admin' && Number(album.id_admin) !== Number(req.user.id_usuario)) {
+      await fs.promises.unlink(req.file.path).catch(() => {});
+      return res.status(403).json({ error: { message: 'Somente administradores podem alterar a capa do álbum.' } });
+    }
+    const location = `/uploads/${req.file.filename}`;
+    await query('UPDATE subgrupo SET foto_capa=$1 WHERE id_subgrupo=$2',
+      [location, album.id_subgrupo]);
+    if (album.foto_capa?.startsWith('/uploads/')) {
+      const old = path.basename(album.foto_capa);
+      if (old !== req.file.filename) fs.promises.unlink(path.join(uploadsDir, old)).catch(() => {});
+    }
+    res.json({ chapter: await getChapter(album.id_subgrupo, req.user.id_usuario) });
+  } catch (err) { await fs.promises.unlink(req.file.path).catch(() => {}); next(err); }
+});
+
+// O administrador escolhe o destino das mídias antes de retirar alguém do grupo.
+router.delete('/api/families/:familyId/members/:userId', authenticate, requireFamilyMember, async (req, res, next) => {
+  if (req.familyPermission !== 'admin' && Number(req.familyAdminId) !== Number(req.user.id_usuario)) {
+    return res.status(403).json({ error: { message: 'Somente administradores podem remover integrantes.' } });
+  }
+  const targetId=Number(req.params.userId);
+  const deleteMedia=req.body?.deleteMedia === true;
+  if(!Number.isSafeInteger(targetId)||targetId<1) {
+    return res.status(400).json({error:{message:'Integrante inválido.'}});
+  }
+  if(targetId===Number(req.familyAdminId)||targetId===Number(req.user.id_usuario)) {
+    return res.status(403).json({error:{message:'O administrador não pode remover sua própria conta do grupo.'}});
+  }
+  const client=await pool.connect();
+  try {
+    await client.query('BEGIN');
+    const member=await client.query(
+      `SELECT permissao FROM participante_grupo WHERE id_grupo=$1 AND id_usuario=$2 FOR UPDATE`,
+      [req.familyId,targetId]
+    );
+    if(!member.rowCount) {
+      await client.query('ROLLBACK');
+      return res.status(404).json({error:{message:'Participante não encontrado no grupo.'}});
+    }
+    if(member.rows[0].permissao==='admin') {
+      await client.query('ROLLBACK');
+      return res.status(403).json({error:{message:'Não é possível remover outro administrador.'}});
+    }
+    let files=[];
+    if(deleteMedia) {
+      const existing=await client.query(
+        `SELECT m.arquivo FROM midia m JOIN subgrupo s ON s.id_subgrupo=m.id_subgrupo
+         WHERE s.id_grupo=$1 AND m.id_usuario=$2`,[req.familyId,targetId]
+      );
+      files=existing.rows.map(row=>row.arquivo);
+      await client.query(
+        `DELETE FROM midia m USING subgrupo s
+         WHERE m.id_subgrupo=s.id_subgrupo AND s.id_grupo=$1 AND m.id_usuario=$2`,
+        [req.familyId,targetId]
+      );
+    }
+    await client.query(
+      `DELETE FROM participante_subgrupo ps USING subgrupo s
+       WHERE ps.id_subgrupo=s.id_subgrupo AND s.id_grupo=$1 AND ps.id_usuario=$2`,
+      [req.familyId,targetId]
+    );
+    await client.query('DELETE FROM participante_grupo WHERE id_grupo=$1 AND id_usuario=$2',
+      [req.familyId,targetId]);
+    await client.query('COMMIT');
+    for(const file of files) {
+      if(file?.startsWith('/uploads/')) {
+        await fs.promises.unlink(path.join(uploadsDir,path.basename(file))).catch(()=>{});
+      }
+    }
+    res.json({message:deleteMedia?
+      'Participante removido. As mídias dele neste grupo foram excluídas.':
+      'Participante removido. As mídias dele foram preservadas neste grupo.'
+    });
+  }catch(err) {
+    await client.query('ROLLBACK').catch(()=>{});
+    next(err);
+  }finally { client.release(); }
+});
+
+// Convites privados: criar pendência não concede acesso ao grupo.
+router.post('/api/families/:familyId/members/invite', authenticate, requireFamilyMember, async (req, res, next) => {
+  if (req.familyPermission !== 'admin' && Number(req.familyAdminId) !== Number(req.user.id_usuario)) {
+    return res.status(403).json({ error: { message: 'Somente administradores podem convidar pessoas.' } });
+  }
+  const email = String(req.body.email || '').trim().toLowerCase();
+  if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email) || email.length > 150) {
+    return res.status(400).json({ error: { message: 'Informe um e-mail válido.' } });
+  }
+  if (email === String(req.user.email).toLowerCase()) {
+    return res.status(400).json({ error: { message: 'Você já participa deste grupo.' } });
+  }
+  try {
+    const alreadyMember = await query(
+      `SELECT 1 FROM participante_grupo pg JOIN usuario u ON u.id_usuario=pg.id_usuario
+       WHERE pg.id_grupo=$1 AND LOWER(u.email)=LOWER($2)`, [req.familyId,email]
+    );
+    if (alreadyMember.rowCount) {
+      return res.status(409).json({ error: { message: 'Esta pessoa já participa do grupo.' } });
     }
     await query(
       `INSERT INTO convite_grupo (email,id_grupo,id_convidante,status) VALUES ($1,$2,$3,'pending')
-       ON CONFLICT (email,id_grupo) DO UPDATE SET id_convidante=EXCLUDED.id_convidante,status='pending',data_criacao=CURRENT_TIMESTAMP`,
-      [email, req.familyId, req.user.id_usuario],
+       ON CONFLICT (email,id_grupo) DO UPDATE
+       SET id_convidante=EXCLUDED.id_convidante,status='pending',data_criacao=CURRENT_TIMESTAMP`,
+      [email,req.familyId,req.user.id_usuario]
     );
-    res.status(201).json({ message: 'Convite registrado. A pessoa será vinculada à família quando criar uma conta com esse e-mail.' });
+    res.status(201).json({
+      message: 'Convite registrado. A pessoa poderá aceitá-lo em Meus grupos ao entrar com esse e-mail. O envio externo de e-mail ainda não está habilitado.'
+    });
   } catch (err) { next(err); }
 });
 
-// Chapters/subgroups
-router.post('/api/families/:familyId/chapters', authenticate, requireFamilyMember, async (req, res, next) => {
-  const title = String(req.body.title || '').trim();
-  const description = String(req.body.description || '').trim();
-  const eventDate = String(req.body.eventDate || '').slice(0, 10);
-  const visibility = req.body.visibility === 'private' ? 'private' : 'family';
-  if (!title || title.length > 150) return res.status(400).json({ error: { message: 'Informe um título de até 150 caracteres.' } });
-  if (!/^\d{4}-\d{2}-\d{2}$/.test(eventDate) || Number.isNaN(Date.parse(`${eventDate}T00:00:00Z`))) return res.status(400).json({ error: { message: 'Informe uma data válida no formato AAAA-MM-DD.' } });
-  const memberIds = Array.isArray(req.body.memberIds) ? [...new Set(req.body.memberIds.map(Number).filter(Number.isInteger))] : [];
+// Convites só são exibidos ao titular autenticado do endereço de e-mail.
+router.get('/api/invitations', authenticate, async (req, res, next) => {
+  try {
+    const result = await query(
+      `SELECT c.id_convite, c.data_criacao, g.id_grupo, g.nome
+       FROM convite_grupo c
+       JOIN grupo g ON g.id_grupo=c.id_grupo
+       WHERE LOWER(c.email)=LOWER($1) AND c.status='pending'
+       ORDER BY c.data_criacao DESC`, [req.user.email]
+    );
+    res.json({ invitations: result.rows.map((row) => ({
+      id: asId(row.id_convite),
+      groupId: asId(row.id_grupo),
+      groupName: row.nome,
+      createdAt: row.data_criacao,
+    })) });
+  } catch (err) { next(err); }
+});
+
+router.post('/api/invitations/:id/accept', authenticate, async (req, res, next) => {
+  const invitationId = Number(req.params.id);
+  if (!Number.isInteger(invitationId) || invitationId < 1) {
+    return res.status(400).json({ error: { message: 'Convite inválido.' } });
+  }
   const client = await pool.connect();
   try {
     await client.query('BEGIN');
-    const created = await client.query(
-      `INSERT INTO subgrupo (nome,descricao,data_evento,visibilidade,id_grupo,id_criador)
-       VALUES ($1,$2,$3,$4,$5,$6) RETURNING id_subgrupo`,
-      [title, description || null, eventDate, visibility, req.familyId, req.user.id_usuario],
+    const result = await client.query(
+      `SELECT id_convite, id_grupo, email FROM convite_grupo
+       WHERE id_convite=$1 AND status='pending' FOR UPDATE`, [invitationId]
     );
-    const chapterId = created.rows[0].id_subgrupo;
-    const selected = [...new Set([...(memberIds.length ? memberIds : []), Number(req.user.id_usuario)])];
-    for (const userId of selected) {
-      const membership = await client.query('SELECT 1 FROM participante_grupo WHERE id_grupo=$1 AND id_usuario=$2', [req.familyId, userId]);
-      if (membership.rowCount) await client.query("INSERT INTO participante_subgrupo (id_usuario,id_subgrupo,permissao) VALUES ($1,$2,'member') ON CONFLICT DO NOTHING", [userId, chapterId]);
+    if (!result.rowCount || result.rows[0].email.toLowerCase() !== String(req.user.email).toLowerCase()) {
+      await client.query('ROLLBACK');
+      return res.status(404).json({ error: { message: 'Convite não encontrado ou já resolvido.' } });
     }
+    const groupId=result.rows[0].id_grupo;
+    await client.query(
+      `INSERT INTO participante_grupo (id_usuario,id_grupo,permissao)
+       VALUES ($1,$2,'member') ON CONFLICT (id_usuario,id_grupo) DO NOTHING`,
+      [req.user.id_usuario,groupId]
+    );
+    await client.query("UPDATE convite_grupo SET status='accepted' WHERE id_convite=$1",[invitationId]);
     await client.query('COMMIT');
-    res.status(201).json({ chapter: await getChapter(chapterId, req.user.id_usuario) });
-  } catch (err) { await client.query('ROLLBACK').catch(() => {}); next(err); }
-  finally { client.release(); }
+    res.json({ message: 'Convite aceito.', groupId: asId(groupId) });
+  } catch(err) {
+    await client.query('ROLLBACK').catch(()=>{});
+    next(err);
+  } finally { client.release(); }
+});
+
+router.post('/api/invitations/:id/decline', authenticate, async (req, res, next) => {
+  const invitationId=Number(req.params.id);
+  if (!Number.isInteger(invitationId) || invitationId < 1) {
+    return res.status(400).json({ error: { message: 'Convite inválido.' } });
+  }
+  try {
+    const result=await query(
+      `UPDATE convite_grupo SET status='cancelled'
+       WHERE id_convite=$1 AND LOWER(email)=LOWER($2) AND status='pending'
+       RETURNING id_convite`,[invitationId,req.user.email]
+    );
+    if (!result.rowCount) return res.status(404).json({ error: { message: 'Convite não encontrado ou já resolvido.' } });
+    res.json({ message: 'Convite recusado.' });
+  } catch(err) { next(err); }
+});
+
+// Chapters/subgroups
+// Álbuns são coleções temáticas, não eventos: não exigem data ou subparticipantes.
+router.post('/api/families/:familyId/chapters', authenticate, requireFamilyMember, async (req, res, next) => {
+  if (req.familyPermission !== 'admin' && Number(req.familyAdminId) !== Number(req.user.id_usuario)) {
+    return res.status(403).json({ error: { message: 'Somente o administrador pode criar álbuns.' } });
+  }
+  const title = String(req.body.title || '').trim();
+  const description = String(req.body.description || '').trim();
+  if (title.length < 2 || title.length > 150) {
+    return res.status(400).json({ error: { message: 'O nome do álbum deve ter entre 2 e 150 caracteres.' } });
+  }
+  try {
+    const result = await query(
+      `INSERT INTO subgrupo (nome,descricao,id_grupo,id_criador,visibilidade)
+       VALUES ($1,$2,$3,$4,'family') RETURNING id_subgrupo`,
+      [title,description || null,req.familyId,req.user.id_usuario]
+    );
+    res.status(201).json({ chapter: await getChapter(result.rows[0].id_subgrupo,req.user.id_usuario) });
+  } catch(err) { next(err); }
 });
 
 router.patch('/api/chapters/:id', authenticate, async (req, res, next) => {
-  const chapterId = Number(req.params.id);
+  const chapterId=Number(req.params.id);
+  if(!Number.isInteger(chapterId)||chapterId<1) return res.status(400).json({error:{message:'Álbum inválido.'}});
   try {
-    const chapter = await assertChapterAccess(chapterId, req.user.id_usuario, true);
-    if (!chapter) return res.status(404).json({ error: { message: 'Memória não encontrada ou sem permissão.' } });
-    if (Number(chapter.id_criador) !== Number(req.user.id_usuario) && chapter.family_permission !== 'admin' && chapter.family_permission !== 'editor') return res.status(403).json({ error: { message: 'Você não tem permissão para editar esta memória.' } });
-    const title = String(req.body.title ?? chapter.nome).trim();
-    const description = String(req.body.description ?? chapter.descricao ?? '').trim();
-    const eventDate = String(req.body.eventDate ?? chapter.data_evento).slice(0, 10);
-    const visibility = req.body.visibility === 'private' ? 'private' : req.body.visibility === 'family' ? 'family' : chapter.visibilidade;
-    if (!title || title.length > 150) return res.status(400).json({ error: { message: 'Informe um título de até 150 caracteres.' } });
-    if (!/^\d{4}-\d{2}-\d{2}$/.test(eventDate) || Number.isNaN(Date.parse(`${eventDate}T00:00:00Z`))) return res.status(400).json({ error: { message: 'Data inválida.' } });
-    const client = await pool.connect();
-    try {
-      await client.query('BEGIN');
-      await client.query('UPDATE subgrupo SET nome=$1,descricao=$2,data_evento=$3,visibilidade=$4 WHERE id_subgrupo=$5', [title, description || null, eventDate, visibility, chapterId]);
-      if (Array.isArray(req.body.memberIds)) {
-        await client.query('DELETE FROM participante_subgrupo WHERE id_subgrupo=$1', [chapterId]);
-        const ids = [...new Set(req.body.memberIds.map(Number).filter(Number.isInteger))];
-        if (!ids.includes(Number(req.user.id_usuario))) ids.push(Number(req.user.id_usuario));
-        for (const userId of ids) {
-          const membership = await client.query('SELECT 1 FROM participante_grupo WHERE id_grupo=$1 AND id_usuario=$2', [chapter.id_grupo, userId]);
-          if (membership.rowCount) await client.query("INSERT INTO participante_subgrupo (id_usuario,id_subgrupo,permissao) VALUES ($1,$2,'member') ON CONFLICT DO NOTHING", [userId, chapterId]);
-        }
-      }
-      await client.query('COMMIT');
-    } catch (err) { await client.query('ROLLBACK').catch(() => {}); throw err; }
-    finally { client.release(); }
-    res.json({ chapter: await getChapter(chapterId, req.user.id_usuario) });
-  } catch (err) { next(err); }
+    const chapter=await assertChapterAccess(chapterId,req.user.id_usuario);
+    if(!chapter) return res.status(404).json({error:{message:'Álbum não encontrado ou sem acesso.'}});
+    if(chapter.family_permission!=='admin' && Number(chapter.id_admin)!==Number(req.user.id_usuario)) {
+      return res.status(403).json({error:{message:'Somente administradores podem editar álbuns.'}});
+    }
+    const title=String(req.body.title ?? chapter.nome).trim();
+    const description=String(req.body.description ?? chapter.descricao ?? '').trim();
+    if(title.length<2||title.length>150) return res.status(400).json({error:{message:'Nome do álbum inválido.'}});
+    await query('UPDATE subgrupo SET nome=$1,descricao=$2 WHERE id_subgrupo=$3',
+      [title,description||null,chapterId]);
+    res.json({chapter:await getChapter(chapterId,req.user.id_usuario)});
+  } catch(err) { next(err); }
 });
 
 router.delete('/api/chapters/:id', authenticate, async (req, res, next) => {
+  const id = Number(req.params.id);
+  if (!Number.isSafeInteger(id) || id < 1) {
+    return res.status(400).json({ error: { message: 'Álbum inválido.' } });
+  }
+  const chapter = await assertChapterAccess(id, req.user.id_usuario).catch(next);
+  if (!chapter) return;
+  if (Number(chapter.id_admin) !== Number(req.user.id_usuario)) {
+    return res.status(403).json({ error: { message: 'Somente o administrador do grupo pode excluir álbuns.' } });
+  }
+  if (req.body?.confirmed !== true || typeof req.body?.confirmName !== 'string') {
+    return res.status(400).json({ error: { message: 'Confirme a exclusão informando o nome exato do álbum.' } });
+  }
+  const client = await pool.connect();
+  let files = [];
   try {
-    const chapter = await assertChapterAccess(Number(req.params.id), req.user.id_usuario, true);
-    if (!chapter) return res.status(404).json({ error: { message: 'Memória não encontrada ou sem permissão.' } });
-    if (Number(chapter.id_criador) !== Number(req.user.id_usuario) && chapter.family_permission !== 'admin') return res.status(403).json({ error: { message: 'Somente quem criou ou um administrador pode excluir esta memória.' } });
-    const media = await query('SELECT arquivo FROM midia WHERE id_subgrupo=$1', [req.params.id]);
-    await query('DELETE FROM subgrupo WHERE id_subgrupo=$1', [req.params.id]);
-    for (const item of media.rows) {
-      if (item.arquivo && item.arquivo.startsWith('/uploads/')) fs.promises.unlink(path.join(uploadsDir, path.basename(item.arquivo))).catch(() => {});
+    await client.query('BEGIN');
+    const result = await client.query(
+      `SELECT s.nome, s.foto_capa, g.id_admin FROM subgrupo s
+       JOIN grupo g ON g.id_grupo=s.id_grupo
+       WHERE s.id_subgrupo=$1 FOR UPDATE OF s`, [id]
+    );
+    const current = result.rows[0];
+    if (!current) {
+      await client.query('ROLLBACK');
+      return res.status(404).json({ error: { message: 'Álbum não encontrado.' } });
     }
-    res.status(204).end();
-  } catch (err) { next(err); }
+    if (Number(current.id_admin) !== Number(req.user.id_usuario)) {
+      await client.query('ROLLBACK');
+      return res.status(403).json({ error: { message: 'Sem permissão para excluir este álbum.' } });
+    }
+    if (req.body.confirmName !== current.nome) {
+      await client.query('ROLLBACK');
+      return res.status(400).json({ error: { message: 'Digite o nome exato do álbum para confirmar.' } });
+    }
+    const media = await client.query('SELECT arquivo FROM midia WHERE id_subgrupo=$1', [id]);
+    files = [current.foto_capa, ...media.rows.map(m => m.arquivo)]
+      .filter(file => typeof file === 'string' && file.startsWith('/uploads/'));
+    await client.query('DELETE FROM subgrupo WHERE id_subgrupo=$1', [id]);
+    await client.query('COMMIT');
+  } catch (err) {
+    await client.query('ROLLBACK').catch(() => {});
+    return next(err);
+  } finally { client.release(); }
+  const results = await Promise.allSettled(
+    [...new Set(files)].map(file => fs.promises.unlink(path.join(uploadsDir, path.basename(file))))
+  );
+  if (results.some(item => item.status === 'rejected' && item.reason?.code !== 'ENOENT')) {
+    console.warn('[Arquivos] Algumas mídias do álbum excluído exigem limpeza de armazenamento.');
+  }
+  return res.json({ message: 'Álbum excluído, incluindo suas memórias e comentários.' });
 });
 
 router.post('/api/chapters/:id/comments', authenticate, async (req, res, next) => {
   const body = String(req.body.body || '').trim();
   if (!body || body.length > 5000) return res.status(400).json({ error: { message: 'O comentário deve ter entre 1 e 5000 caracteres.' } });
   try {
-    const chapter = await assertChapterAccess(Number(req.params.id), req.user.id_usuario, true);
+    const chapter = await assertChapterAccess(Number(req.params.id), req.user.id_usuario);
     if (!chapter) return res.status(404).json({ error: { message: 'Memória não encontrada ou sem permissão.' } });
     const created = await query('INSERT INTO comentario (conteudo,id_usuario,id_subgrupo) VALUES ($1,$2,$3) RETURNING *', [body, req.user.id_usuario, req.params.id]);
     res.status(201).json({ comment: publicComment({ ...created.rows[0], nome: req.user.nome, email: req.user.email }) });
@@ -485,22 +843,174 @@ router.post('/api/chapters/:id/media', authenticate, (req, res, next) => {
 }, async (req, res, next) => {
   if (!req.file) return res.status(400).json({ error: { message: 'Selecione um arquivo para enviar.' } });
   try {
-    const chapter = await assertChapterAccess(Number(req.params.id), req.user.id_usuario, true);
+    const chapter = await assertChapterAccess(Number(req.params.id), req.user.id_usuario);
     if (!chapter) {
       await fs.promises.unlink(req.file.path).catch(() => {});
       return res.status(404).json({ error: { message: 'Memória não encontrada ou sem permissão.' } });
     }
+    const memoryDate = String(req.body.memoryDate || '').trim();
+    const parsed = /^\d{4}-\d{2}-\d{2}$/.test(memoryDate)
+      ? new Date(`${memoryDate}T12:00:00Z`) : new Date(NaN);
+    if (Number.isNaN(parsed.getTime()) || parsed.toISOString().slice(0, 10) !== memoryDate) {
+      await fs.promises.unlink(req.file.path).catch(() => {});
+      return res.status(400).json({ error: { message: 'Informe a data da lembrança no formato AAAA-MM-DD.' } });
+    }
     const type = mediaType(req.file.mimetype);
     const url = `/uploads/${req.file.filename}`;
+    const title = String(req.body.title || '').trim();
+    const place = String(req.body.place || '').trim();
+    const story = String(req.body.story || '').trim();
+    if (!title || title.length > 150 || place.length > 160 || story.length > 10000) {
+      await fs.promises.unlink(req.file.path).catch(() => {});
+      return res.status(400).json({ error: { message: 'Informe título (até 150 caracteres), local e história dentro dos limites permitidos.' } });
+    }
     const inserted = await query(
-      'INSERT INTO midia (arquivo,descricao,tipo_midia,id_usuario,id_subgrupo) VALUES ($1,$2,$3,$4,$5) RETURNING *',
-      [url, req.file.originalname.slice(0, 255), type, req.user.id_usuario, req.params.id],
+      `INSERT INTO midia (arquivo,descricao,tipo_midia,id_usuario,id_subgrupo,data_lembranca,titulo,local_lembranca,historia)
+       VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9) RETURNING *`,
+      [url, title, type, req.user.id_usuario, req.params.id, memoryDate,
+       title, place || null, story || null],
     );
-    res.status(201).json({ media: publicMedia(inserted.rows[0]) });
+    res.status(201).json({ media: publicMedia(inserted.rows[0], req.user.id_usuario) });
   } catch (err) {
     await fs.promises.unlink(req.file.path).catch(() => {});
     next(err);
   }
+});
+
+// Detalhes e administração de lembranças individuais (não do álbum inteiro).
+async function mediaForUser(mediaId,userId) {
+  const result=await query(
+    `SELECT m.*,s.id_grupo,g.id_admin,pg.permissao AS group_permission,u.nome AS author_name
+     FROM midia m
+     JOIN subgrupo s ON s.id_subgrupo=m.id_subgrupo
+     JOIN grupo g ON g.id_grupo=s.id_grupo
+     JOIN participante_grupo pg ON pg.id_grupo=g.id_grupo AND pg.id_usuario=$2
+     JOIN usuario u ON u.id_usuario=m.id_usuario
+     WHERE m.id_midia=$1`,[mediaId,userId]
+  );
+  return result.rows[0] || null;
+}
+function canManageMedia(record,userId) {
+  return Number(record.id_usuario)===Number(userId) ||
+    record.group_permission==='admin' || Number(record.id_admin)===Number(userId);
+}
+function validMemoryDate(value) {
+  if(!/^\d{4}-\d{2}-\d{2}$/.test(value)) return false;
+  const parsed = new Date(`${value}T12:00:00Z`);
+  return !Number.isNaN(parsed.getTime()) && parsed.toISOString().slice(0,10)===value;
+}
+
+router.get('/api/media/:id',authenticate,async(req,res,next)=>{
+  const id=Number(req.params.id);
+  if(!Number.isSafeInteger(id)||id<1)return res.status(400).json({error:{message:'Mídia inválida.'}});
+  try {
+    const record=await mediaForUser(id,req.user.id_usuario);
+    if(!record)return res.status(404).json({error:{message:'Lembrança não encontrada ou sem permissão.'}});
+    const comments=await query(
+      `SELECT c.*,u.nome,u.email FROM comentario c JOIN usuario u ON u.id_usuario=c.id_usuario
+       WHERE c.id_midia=$1 ORDER BY c.data_criacao ASC`,[id]
+    );
+    res.json({media:{...publicMedia(record,req.user.id_usuario),authorName:record.author_name,
+      albumId:asId(record.id_subgrupo),groupId:asId(record.id_grupo),
+      canManage:canManageMedia(record,req.user.id_usuario),
+      isGroupAdmin:record.group_permission==='admin' || Number(record.id_admin)===Number(req.user.id_usuario),
+      comments:comments.rows.map(publicComment)
+    }});
+  }catch(err){next(err)}
+});
+
+router.patch('/api/media/:id',authenticate,async(req,res,next)=>{
+  const id=Number(req.params.id);
+  if(!Number.isSafeInteger(id)||id<1)return res.status(400).json({error:{message:'Mídia inválida.'}});
+  try {
+    const record=await mediaForUser(id,req.user.id_usuario);
+    if(!record)return res.status(404).json({error:{message:'Lembrança não encontrada.'}});
+    if(!canManageMedia(record,req.user.id_usuario))return res.status(403).json({error:{message:'Somente o autor ou administrador pode editar.'}});
+    const title=String(req.body.title ?? req.body.caption ?? record.titulo ?? record.descricao ?? '').trim();
+    const place=String(req.body.place ?? record.local_lembranca ?? '').trim();
+    const story=String(req.body.story ?? record.historia ?? '').trim();
+    const memoryDate=String(req.body.memoryDate ?? (record.data_lembranca ? record.data_lembranca.toISOString().slice(0,10) : '')).trim();
+    if(!title || title.length>150 || place.length>160 || story.length>10000) {
+      return res.status(400).json({error:{message:'Título, local ou história fora dos limites permitidos.'}});
+    }
+    if(!validMemoryDate(memoryDate))return res.status(400).json({error:{message:'Informe a data da lembrança no formato AAAA-MM-DD.'}});
+    await query(
+      `UPDATE midia SET titulo=$1,descricao=$2,local_lembranca=$3,historia=$4,data_lembranca=$5 WHERE id_midia=$6`,
+      [title,title,place||null,story||null,memoryDate,id]
+    );
+    res.json({message:'Lembrança atualizada.'});
+  }catch(err){next(err)}
+});
+
+router.delete('/api/media/:id',authenticate,async(req,res,next)=>{
+  const id=Number(req.params.id);
+  if(!Number.isSafeInteger(id)||id<1)return res.status(400).json({error:{message:'Mídia inválida.'}});
+  try {
+    const record=await mediaForUser(id,req.user.id_usuario);
+    if(!record)return res.status(404).json({error:{message:'Lembrança não encontrada.'}});
+    if(!canManageMedia(record,req.user.id_usuario))return res.status(403).json({error:{message:'Somente o autor ou administrador pode excluir.'}});
+    await query('DELETE FROM midia WHERE id_midia=$1',[id]);
+    if(record.arquivo?.startsWith('/uploads/')) {
+      await fs.promises.unlink(path.join(uploadsDir,path.basename(record.arquivo))).catch(()=>{});
+    }
+    res.status(204).end();
+  }catch(err){next(err)}
+});
+
+router.post('/api/media/:id/comments',authenticate,async(req,res,next)=>{
+  const id=Number(req.params.id);
+  const body=String(req.body.body||'').trim();
+  if(!Number.isSafeInteger(id)||id<1)return res.status(400).json({error:{message:'Mídia inválida.'}});
+  if(!body||body.length>5000)return res.status(400).json({error:{message:'O comentário deve ter entre 1 e 5000 caracteres.'}});
+  try {
+    const record=await mediaForUser(id,req.user.id_usuario);
+    if(!record)return res.status(404).json({error:{message:'Lembrança não encontrada ou sem acesso.'}});
+    const result=await query('INSERT INTO comentario (conteudo,id_usuario,id_midia) VALUES ($1,$2,$3) RETURNING *',
+      [body,req.user.id_usuario,id]);
+    res.status(201).json({comment:publicComment({...result.rows[0],nome:req.user.nome,email:req.user.email})});
+  }catch(err){next(err)}
+});
+
+async function editableComment(commentId,userId) {
+  const result=await query(
+    `SELECT c.*,g.id_admin,pg.permissao AS group_permission
+     FROM comentario c
+     JOIN midia m ON m.id_midia=c.id_midia
+     JOIN subgrupo s ON s.id_subgrupo=m.id_subgrupo
+     JOIN grupo g ON g.id_grupo=s.id_grupo
+     JOIN participante_grupo pg ON pg.id_grupo=g.id_grupo AND pg.id_usuario=$2
+     WHERE c.id_comentario=$1`,[commentId,userId]
+  );
+  return result.rows[0] || null;
+}
+function canManageComment(record,userId) {
+  return Number(record.id_usuario)===Number(userId) ||
+    record.group_permission==='admin' || Number(record.id_admin)===Number(userId);
+}
+
+router.patch('/api/media/comments/:id',authenticate,async(req,res,next)=>{
+  const id=Number(req.params.id), body=String(req.body.body||'').trim();
+  if(!Number.isSafeInteger(id)||id<1)return res.status(400).json({error:{message:'Comentário inválido.'}});
+  if(!body||body.length>5000)return res.status(400).json({error:{message:'O comentário deve ter entre 1 e 5000 caracteres.'}});
+  try {
+    const record=await editableComment(id,req.user.id_usuario);
+    if(!record)return res.status(404).json({error:{message:'Comentário não encontrado.'}});
+    if(!canManageComment(record,req.user.id_usuario))return res.status(403).json({error:{message:'Você não pode editar este comentário.'}});
+    await query('UPDATE comentario SET conteudo=$1 WHERE id_comentario=$2',[body,id]);
+    res.json({message:'Comentário atualizado.'});
+  }catch(err){next(err)}
+});
+
+router.delete('/api/media/comments/:id',authenticate,async(req,res,next)=>{
+  const id=Number(req.params.id);
+  if(!Number.isSafeInteger(id)||id<1)return res.status(400).json({error:{message:'Comentário inválido.'}});
+  try {
+    const record=await editableComment(id,req.user.id_usuario);
+    if(!record)return res.status(404).json({error:{message:'Comentário não encontrado.'}});
+    if(!canManageComment(record,req.user.id_usuario))return res.status(403).json({error:{message:'Você não pode excluir este comentário.'}});
+    await query('DELETE FROM comentario WHERE id_comentario=$1',[id]);
+    res.status(204).end();
+  }catch(err){next(err)}
 });
 
 module.exports = router;

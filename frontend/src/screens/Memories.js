@@ -488,31 +488,23 @@ export function ChapterDetail({
   onRefresh,
   onEdit,
   onDelete,
+  canManage = false,
+  onOpenMedia,
 }) {
-  const [comment, setComment] = useState("");
   const [error, setError] = useState("");
   const [uploading, setUploading] = useState(false);
-
-  const addComment = async () => {
-    if (!comment.trim()) return;
-
-    try {
-      setError("");
-
-      await api(`/api/chapters/${chapter.id}/comments`, token, {
-        method: "POST",
-        body: JSON.stringify({ body: comment.trim() }),
-      });
-
-      setComment("");
-      await onRefresh();
-    } catch (e) {
-      setError(getErrorMessage(e));
-    }
-  };
+  const [memoryDate, setMemoryDate] = useState(new Date().toISOString().slice(0, 10));
+  const [memoryCaption, setMemoryCaption] = useState("");
 
   const upload = async () => {
     if (uploading) return;
+    const parsedDate = /^\d{4}-\d{2}-\d{2}$/.test(memoryDate)
+      ? new Date(`${memoryDate}T12:00:00Z`)
+      : new Date(NaN);
+    if (Number.isNaN(parsedDate.getTime()) || parsedDate.toISOString().slice(0, 10) !== memoryDate) {
+      setError("Informe a data da lembrança no formato AAAA-MM-DD antes de selecionar o arquivo.");
+      return;
+    }
 
     try {
       setError("");
@@ -538,6 +530,8 @@ export function ChapterDetail({
       setUploading(true);
 
       const formData = new FormData();
+      formData.append("memoryDate", memoryDate);
+      formData.append("caption", memoryCaption.trim());
 
       if (Platform.OS === "web") {
         // No navegador, envie o File original retornado pelo DocumentPicker.
@@ -588,6 +582,7 @@ export function ChapterDetail({
       }
 
       await onRefresh();
+      setMemoryCaption("");
 
       if (Platform.OS === "web") {
         window.alert("Arquivo enviado com sucesso!");
@@ -614,7 +609,7 @@ export function ChapterDetail({
     if (Platform.OS === "web") {
       if (
         window.confirm(
-          "Excluir memória? Esta ação remove o capítulo, mídias e comentários.",
+          "Excluir álbum? Esta ação remove todas as mídias e comentários dele.",
         )
       ) {
         remove();
@@ -623,8 +618,8 @@ export function ChapterDetail({
     }
 
     Alert.alert(
-      "Excluir memória",
-      "Esta ação remove o capítulo, mídias e comentários.",
+      "Excluir álbum",
+      "Esta ação remove todas as mídias e comentários dele.",
       [
         { text: "Cancelar", style: "cancel" },
         { text: "Excluir", style: "destructive", onPress: remove },
@@ -635,22 +630,20 @@ export function ChapterDetail({
   return (
     <Screen>
       <TopBar
-        title="Memória"
+        title="Álbum de memórias"
         onBack={onBack}
         action={
-          <Pressable onPress={onEdit}>
-            <Icon name="edit-3" size={19} color={COLORS.teal} />
-          </Pressable>
+          canManage ? (
+            <Pressable onPress={onEdit} accessibilityRole="button" accessibilityLabel="Editar álbum">
+              <Icon name="edit-3" size={19} color={COLORS.teal} />
+            </Pressable>
+          ) : undefined
         }
       />
 
       <View style={styles.detailPage}>
         <Text style={styles.chapterDate}>
-          {formatDate(chapter.eventDate)}{" "}
-          {"·"}{" "}
-          {chapter.visibility === "private"
-            ? "privado"
-            : "compartilhado"}
+          <Icon name="lock" size={12} color={COLORS.terracotta} /> Álbum privado
         </Text>
 
         <Text style={styles.detailTitle}>{chapter.title}</Text>
@@ -660,48 +653,67 @@ export function ChapterDetail({
             "Uma história que ainda pode ganhar mais detalhes."}
         </Text>
 
-        <View style={styles.detailActions}>
-          <Button
-            variant="outline"
-            small
-            onPress={onEdit}
-            icon="edit-3"
-          >
-            Editar
-          </Button>
-
-          <Button
-            variant="danger"
-            small
-            onPress={confirmDelete}
-            icon="trash-2"
-          >
-            Excluir
-          </Button>
-        </View>
-
-        <View style={styles.detailSectionHeader}>
-          <View>
-            <Text style={styles.eyebrow}>REGISTROS</Text>
-            <Text style={styles.sectionTitleSmall}>
-              Fotos, vídeos e áudios
-            </Text>
+        {canManage && (
+          <View style={styles.detailActions}>
+            <Button variant="outline" small onPress={onEdit} icon="edit-3">
+              Editar álbum
+            </Button>
+            <Button variant="danger" small onPress={confirmDelete} icon="trash-2">
+              Excluir álbum
+            </Button>
           </View>
+        )}
 
-          <Button
-            small
-            onPress={upload}
-            loading={uploading}
-            icon="upload-cloud"
-          >
-            Adicionar
+        <View style={[styles.detailSectionHeader, { marginTop: 26 }]}>
+          <View>
+            <Text style={styles.eyebrow}>MINHAS LEMBRANÇAS</Text>
+            <Text style={styles.sectionTitleSmall}>Fotos, vídeos e áudios</Text>
+          </View>
+        </View>
+        <View style={[styles.card, { marginBottom: 22 }]}>
+          <Text style={[styles.memberName, { fontSize: 14, marginBottom: 12 }]}>
+            Adicionar uma lembrança
+          </Text>
+          <Text style={styles.fieldLabel}>DATA DA LEMBRANÇA (AAAA-MM-DD)</Text>
+          <TextInput
+            value={memoryDate}
+            onChangeText={setMemoryDate}
+            placeholder="Ex.: 2024-07-15"
+            placeholderTextColor={COLORS.muted}
+            style={[styles.input, { marginBottom: 14 }]}
+            accessibilityLabel="Data em que a lembrança aconteceu"
+          />
+          <Text style={styles.fieldLabel}>DESCRIÇÃO DA MÍDIA (OPCIONAL)</Text>
+          <TextInput
+            value={memoryCaption}
+            onChangeText={setMemoryCaption}
+            placeholder="Ex.: Visita ao Coliseu"
+            placeholderTextColor={COLORS.muted}
+            style={[styles.input, { marginBottom: 13 }]}
+            accessibilityLabel="Descrição da mídia"
+            maxLength={255}
+          />
+          <Button onPress={upload} loading={uploading} icon="upload-cloud">
+            Selecionar foto, vídeo ou áudio
           </Button>
+          <Text style={[styles.mutedSmall, { marginTop: 12, lineHeight: 17 }]}>
+            As mídias são organizadas pela data escolhida, não pelo dia do envio.
+          </Text>
         </View>
 
         {chapter.media?.length ? (
           <View style={styles.mediaGrid}>
             {chapter.media.map((media) => (
-              <View style={styles.mediaItem} key={media.id}>
+              <Pressable
+                key={media.id}
+                onPress={() => onOpenMedia?.(media)}
+                accessibilityRole="button"
+                accessibilityLabel={"Abrir lembrança " + (media.title || "sem título")}
+                style={[styles.mediaItem, {
+                  borderWidth: 1, borderColor: COLORS.line,
+                  borderRadius: 12, padding: 8, backgroundColor: COLORS.card,
+                }]}
+              >
                 {media.type === "image" ? (
                   <Image
                     source={{ uri: assetUrl(media.url) }}
@@ -725,10 +737,13 @@ export function ChapterDetail({
                   </View>
                 )}
 
-                <Text style={styles.mediaTitle} numberOfLines={1}>
+                <Text style={styles.mediaTitle} numberOfLines={2}>
                   {media.title || "Arquivo"}
                 </Text>
-              </View>
+                <Text style={[styles.mutedSmall, { marginTop: 4 }]}>
+                  {media.memoryDate ? formatDate(media.memoryDate) : "Data da lembrança não informada"}
+                </Text>
+              </Pressable>
             ))}
           </View>
         ) : (
@@ -736,7 +751,7 @@ export function ChapterDetail({
             <Icon name="upload-cloud" size={25} color="#8daf9f" />
 
             <Text style={styles.mutedText}>
-              Este capítulo ainda não tem registros.
+              Este álbum ainda não tem registros.
             </Text>
 
             <Button
@@ -745,75 +760,38 @@ export function ChapterDetail({
               loading={uploading}
               icon="arrow-right"
             >
-              Adicionar o primeiro
+              Adicionar o primeiro arquivo
             </Button>
           </View>
         )}
 
         <View style={styles.commentsBox}>
-          <View
-            style={{
-              flexDirection: "row",
-              alignItems: "center",
-              gap: 6,
-            }}
-          >
-            <Icon
-              name="message-circle"
-              size={12}
-              color={COLORS.terracotta}
-            />
-            <Text style={styles.eyebrow}>CONVERSA DA FAMÍLIA</Text>
+          <View style={{ flexDirection: "row", alignItems: "center", gap: 9 }}>
+            <Icon name="message-circle" size={21} color={COLORS.terracotta} />
+            <Text style={[styles.memberName, { fontSize: 14 }]}>Comentários em cada lembrança</Text>
           </View>
-
-          <Text style={styles.sectionTitleSmall}>
-            O que você lembra?
+          <Text style={[styles.mutedText, { textAlign: "left" }]}>
+            Toque em uma foto, vídeo ou áudio para abrir os detalhes, editar
+            sua lembrança ou deixar um comentário.
           </Text>
-
-          {chapter.comments?.length ? (
-            chapter.comments.map((item) => (
-              <View style={styles.comment} key={item.id}>
-                <Avatar
-                  text={initials(item.user?.name)}
-                  small
-                />
-
-                <View style={{ flex: 1 }}>
-                  <Text style={styles.commentAuthor}>
-                    {item.user?.name || "Membro da família"}
-                  </Text>
-
-                  <Text style={styles.commentDate}>
-                    {formatDate(item.createdAt)}
-                  </Text>
-
-                  <Text style={styles.commentBody}>{item.body}</Text>
+          {!!chapter.comments?.length && (
+            <View style={{ borderTopWidth: 1, borderTopColor: COLORS.line, marginTop: 13, paddingTop: 13 }}>
+              <Text style={[styles.memberName, { marginBottom: 8 }]}>
+                Comentários antigos deste álbum
+              </Text>
+              {chapter.comments.map((item) => (
+                <View key={item.id} style={styles.comment}>
+                  <Avatar text={initials(item.user?.name)} small />
+                  <View style={{ flex: 1 }}>
+                    <Text style={styles.commentAuthor}>{item.user?.name || "Participante"}</Text>
+                    <Text style={styles.commentBody}>{item.body}</Text>
+                  </View>
                 </View>
-              </View>
-            ))
-          ) : (
-            <Text style={styles.mutedText}>
-              Seja a primeira pessoa a deixar um detalhe desta história.
-            </Text>
+              ))}
+            </View>
           )}
-
-          <TextInput
-            value={comment}
-            onChangeText={setComment}
-            placeholder="Escreva uma lembrança…"
-            placeholderTextColor="#a1aca6"
-            multiline
-            style={[styles.input, styles.commentInput]}
-          />
-
-          <Button onPress={addComment} icon="send">
-            Adicionar comentário
-          </Button>
-
-          {error ? (
-            <Text style={styles.errorText}>{error}</Text>
-          ) : null}
         </View>
+        {!!error && <View style={styles.errorBox}><Text style={styles.errorText}>{error}</Text></View>}
       </View>
     </Screen>
   );
