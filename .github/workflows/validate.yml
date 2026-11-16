@@ -3,6 +3,7 @@ name: Validar Memória Viva
 on:
   push:
     branches:
+      - main
       - feat/alinhamento-prototipo-etapa-1
   pull_request:
   workflow_dispatch:
